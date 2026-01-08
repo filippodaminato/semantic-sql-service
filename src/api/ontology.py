@@ -11,7 +11,7 @@ from ..db.models import (
     RelationshipType, SQLEngineType
 )
 from ..schemas.ontology import (
-    TableCreateDTO, TableResponseDTO, TableUpdateDTO,
+    TableCreateDTO, TableResponseDTO, TableUpdateDTO, TableFullResponseDTO,
     ColumnUpdateDTO, ColumnResponseDTO,
     RelationshipCreateDTO, RelationshipResponseDTO, RelationshipUpdateDTO
 )
@@ -314,6 +314,78 @@ def get_table(
     return response
 
 
+@router.get("/tables/{table_id}/full", response_model=TableFullResponseDTO)
+def get_table_full(
+    table_id: UUID,
+    db: Session = Depends(get_db)
+):
+    """
+    Get a table with columns and ALL relationships (both incoming and outgoing).
+    
+    Returns:
+    - Table details
+    - All columns
+    - Outgoing relationships (where this table's columns are source)
+    - Incoming relationships (where this table's columns are target)
+    """
+    table = db.query(TableNode).filter(TableNode.id == table_id).first()
+    if not table:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Table {table_id} not found"
+        )
+    
+    # Get columns
+    columns = db.query(ColumnNode).filter(ColumnNode.table_id == table.id).all()
+    column_ids = [col.id for col in columns]
+    
+    # Get outgoing relationships (source is this table's columns)
+    outgoing_edges = db.query(SchemaEdge).filter(
+        SchemaEdge.source_column_id.in_(column_ids)
+    ).all() if column_ids else []
+    
+    # Get incoming relationships (target is this table's columns)
+    incoming_edges = db.query(SchemaEdge).filter(
+        SchemaEdge.target_column_id.in_(column_ids)
+    ).all() if column_ids else []
+    
+    def edge_to_dto(edge: SchemaEdge) -> dict:
+        source_col = db.query(ColumnNode).filter(ColumnNode.id == edge.source_column_id).first()
+        target_col = db.query(ColumnNode).filter(ColumnNode.id == edge.target_column_id).first()
+        source_table = db.query(TableNode).filter(TableNode.id == source_col.table_id).first() if source_col else None
+        target_table = db.query(TableNode).filter(TableNode.id == target_col.table_id).first() if target_col else None
+        
+        return {
+            "id": edge.id,
+            "source_column_id": edge.source_column_id,
+            "source_column_name": source_col.name if source_col else "",
+            "source_table_id": source_table.id if source_table else None,
+            "source_table_name": source_table.physical_name if source_table else "",
+            "target_column_id": edge.target_column_id,
+            "target_column_name": target_col.name if target_col else "",
+            "target_table_id": target_table.id if target_table else None,
+            "target_table_name": target_table.physical_name if target_table else "",
+            "relationship_type": edge.relationship_type.value if hasattr(edge.relationship_type, 'value') else str(edge.relationship_type),
+            "is_inferred": edge.is_inferred,
+            "description": edge.description,
+            "created_at": edge.created_at
+        }
+    
+    return {
+        "id": table.id,
+        "datasource_id": table.datasource_id,
+        "physical_name": table.physical_name,
+        "semantic_name": table.semantic_name,
+        "description": table.description,
+        "ddl_context": table.ddl_context,
+        "created_at": table.created_at,
+        "updated_at": table.updated_at,
+        "columns": [ColumnResponseDTO.model_validate(col) for col in columns],
+        "outgoing_relationships": [edge_to_dto(e) for e in outgoing_edges],
+        "incoming_relationships": [edge_to_dto(e) for e in incoming_edges]
+    }
+
+
 @router.put("/tables/{table_id}", response_model=TableResponseDTO)
 def update_table(
     table_id: UUID,
@@ -530,7 +602,8 @@ def create_relationship(
         source_column_id=relationship_data.source_column_id,
         target_column_id=relationship_data.target_column_id,
         relationship_type=RelationshipType(relationship_data.relationship_type),
-        is_inferred=relationship_data.is_inferred
+        is_inferred=relationship_data.is_inferred,
+        description=relationship_data.description
     )
     
     try:
@@ -588,6 +661,8 @@ def update_relationship(
         relationship.relationship_type = RelationshipType(relationship_data.relationship_type)
     if relationship_data.is_inferred is not None:
         relationship.is_inferred = relationship_data.is_inferred
+    if relationship_data.description is not None:
+        relationship.description = relationship_data.description
     
     try:
         db.commit()

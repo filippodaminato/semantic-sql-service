@@ -1,0 +1,142 @@
+@use '@angular/material' as mat;
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@include mat.core();
+
+
+
+// Define a dark theme
+$dark-primary: mat.m2-define-palette(mat.$m2-indigo-palette, A200);
+$dark-accent: mat.m2-define-palette(mat.$m2-pink-palette, A200, A100, A400);
+$dark-warn: mat.m2-define-palette(mat.$m2-red-palette);
+
+$dark-theme: mat.m2-define-dark-theme((color: (primary: $dark-primary,
+                accent: $dark-accent,
+                warn: $dark-warn,
+            ),
+            typography: mat.m2-define-typography-config($font-family: 'Inter, sans-serif',
+                $headline-1: mat.m2-define-typography-level(96px, 96px, 300, 'Inter, sans-serif'),
+                $headline-2: mat.m2-define-typography-level(60px, 60px, 300, 'Inter, sans-serif'),
+                $headline-3: mat.m2-define-typography-level(48px, 48px, 400, 'Inter, sans-serif'),
+                $headline-4: mat.m2-define-typography-level(34px, 34px, 400, 'Inter, sans-serif'),
+                $headline-5: mat.m2-define-typography-level(24px, 32px, 400, 'Inter, sans-serif'),
+                $headline-6: mat.m2-define-typography-level(20px, 32px, 500, 'Inter, sans-serif'),
+                $subtitle-1: mat.m2-define-typography-level(16px, 28px, 400, 'Inter, sans-serif'),
+                $subtitle-2: mat.m2-define-typography-level(14px, 22px, 500, 'Inter, sans-serif'),
+                $body-1: mat.m2-define-typography-level(16px, 24px, 400, 'Inter, sans-serif'),
+                $body-2: mat.m2-define-typography-level(14px, 24px, 400, 'Inter, sans-serif'),
+                $button: mat.m2-define-typography-level(14px, 36px, 500, 'Inter, sans-serif'),
+                $caption: mat.m2-define-typography-level(12px, 20px, 400, 'Inter, sans-serif'),
+                $overline: mat.m2-define-typography-level(12px, 32px, 500, 'Inter, sans-serif'),
+            )));
+
+@include mat.all-component-themes($dark-theme);
+
+// Global Styles for Dark "Tech" Look
+:root {
+    --tech-bg-dark: #0a0e14;
+    --tech-bg-card: #141a23; // #1e1e1e;
+    --tech-border-color: #2b3544; // #333;
+    --tech-primary: #536dfe; // Indigo A200
+    --tech-accent: #ff4081; // Pink A200
+    --tech-text-primary: #e0e6ed;
+    --tech-text-secondary: #94a3b8;
+    --tech-font-mono: 'JetBrains Mono', monospace;
+}
+
+html,
+body {
+    height: 100%;
+}
+
+body {
+    margin: 0;
+    font-family: 'Inter', Roboto, "Helvetica Neue", sans-serif;
+    background-color: var(--tech-bg-dark);
+    color: var(--tech-text-primary);
+}
+
+// Overrides for standard HTML elements to match custom variables
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+    color: var(--tech-text-primary);
+    margin: 0;
+}
+
+// Material Card Overrides for "Tech" Look
+.mat-mdc-card {
+    background-color: var(--tech-bg-card) !important;
+    border: 1px solid var(--tech-border-color);
+    color: var(--tech-text-primary);
+    box-shadow: none !important; // Flat look preferred for tech usually, or subtle shadow
+}
+
+.mat-mdc-dialog-container .mat-mdc-dialog-surface {
+    background-color: var(--tech-bg-card) !important;
+    color: var(--tech-text-primary) !important;
+    border: 1px solid var(--tech-border-color);
+}
+
+// Drawer/Sidenav
+.mat-drawer {
+    background-color: var(--tech-bg-card) !important;
+    border-right: 1px solid var(--tech-border-color) !important;
+    color: var(--tech-text-primary) !important;
+}
+
+.mat-drawer-container {
+    background-color: var(--tech-bg-dark) !important;
+}
+
+// Toolbar
+.mat-toolbar {
+    background-color: var(--tech-bg-card) !important; // Dark toolbar
+    border-bottom: 1px solid var(--tech-border-color);
+    color: var(--tech-text-primary) !important;
+}
+
+// Buttons
+.mat-mdc-raised-button.mat-primary {
+    --mdc-protected-button-container-color: var(--tech-primary);
+    --mdc-protected-button-label-text-color: #fff;
+}
+
+// Inputs
+::ng-deep .mat-mdc-form-field-input-control {
+    color: var(--tech-text-primary) !important;
+    caret-color: var(--tech-accent) !important;
+}
+
+::ng-deep .mat-mdc-text-field-wrapper {
+    background-color: #1e293b !important; // Slate-800 for better visibility
+    border-radius: 8px;
+    border: 1px solid var(--tech-border-color);
+}
+
+::ng-deep .mat-mdc-form-field-focus-overlay {
+    background-color: transparent !important;
+}
+
+::ng-deep .mat-mdc-select-value {
+    color: var(--tech-text-primary) !important;
+}
+
+::ng-deep .mat-mdc-select-arrow {
+    color: var(--tech-text-secondary) !important;
+}
+
+// Code blocks
+code {
+    font-family: var(--tech-font-mono) !important;
+    background-color: #1e293b;
+    border: 1px solid var(--tech-border-color);
+    padding: 2px 6px;
+    border-radius: 4px;
+    color: #38bdf8; // Sky-400
+}

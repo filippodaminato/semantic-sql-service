@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 
 from .core.database import engine, Base
 from .core.config import settings
-from .api import ontology, semantics, context, learning, retrieval
+from .api import ontology, semantics, context, learning, retrieval, admin
 
 
 @asynccontextmanager
@@ -49,6 +49,7 @@ app.include_router(semantics.router)
 app.include_router(context.router)
 app.include_router(learning.router)
 app.include_router(retrieval.router)
+app.include_router(admin.router)
 
 
 @app.get("/health")

@@ -1,0 +1,73 @@
+<div class="h-full flex flex-col p-6 max-w-7xl mx-auto">
+  <!-- Header -->
+  <div class="flex justify-between items-center mb-8">
+    <div>
+      <h1 class="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-purple-400 mb-2">
+        Datasources
+      </h1>
+      <p class="text-gray-400 text-lg">Manage your database connections and semantic layer</p>
+    </div>
+    <button mat-flat-button color="primary" class="h-12 px-6 text-base" (click)="openCreateDialog()">
+      <mat-icon>add</mat-icon> NEW DATASOURCE
+    </button>
+  </div>
+
+  <!-- Grid Layout -->
+  <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+    <div *ngFor="let ds of datasources"
+      class="bg-[#141a23] rounded-xl border border-gray-700 p-6 flex flex-col hover:border-blue-500 hover:shadow-lg transition-all cursor-pointer group relative overflow-hidden"
+      [routerLink]="['/admin/datasources', ds.id]">
+
+      <!-- Decorative gradient orb -->
+      <div
+        class="absolute -top-10 -right-10 w-32 h-32 bg-blue-500/10 rounded-full blur-2xl group-hover:bg-blue-500/20 transition-all">
+      </div>
+
+      <div class="flex justify-between items-start mb-4 z-10">
+        <div class="p-3 rounded-lg bg-gray-800 border border-gray-700">
+          <mat-icon class="text-blue-400">dns</mat-icon>
+        </div>
+        <!-- Actions Menu -->
+        <button mat-icon-button (click)="$event.stopPropagation();" [matMenuTriggerFor]="menu"
+          class="hover:bg-gray-800 rounded-full">
+          <mat-icon class="text-gray-500">more_vert</mat-icon>
+        </button>
+        <mat-menu #menu="matMenu" xPosition="before" class="bg-[#1e293b] border border-gray-700">
+          <button mat-menu-item (click)="refreshIndex(ds)">
+            <mat-icon class="text-blue-400">sync</mat-icon>
+            <span class="text-gray-300">Refresh Index</span>
+          </button>
+          <button mat-menu-item (click)="deleteDatasource(ds)">
+            <mat-icon class="text-red-400">delete</mat-icon>
+            <span class="text-gray-300">Delete</span>
+          </button>
+        </mat-menu>
+      </div>
+
+      <h3 class="text-xl font-bold text-gray-100 mb-1 z-10">{{ds.name}}</h3>
+      <p class="text-gray-500 font-mono text-xs mb-4 z-10">{{ds.slug}}</p>
+
+      <div class="mt-auto z-10">
+        <span
+          class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-800 text-gray-300 border border-gray-700">
+          {{ds.engine}}
+        </span>
+      </div>
+
+      <div
+        class="absolute bottom-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 to-purple-600 transform scale-x-0 group-hover:scale-x-100 transition-transform origin-left">
+      </div>
+    </div>
+
+    <!-- Empty State -->
+    <div *ngIf="datasources.length === 0"
+      class="col-span-full py-20 text-center border-2 border-dashed border-gray-700 rounded-xl bg-[#141a23]/50">
+      <mat-icon class="text-6xl text-gray-600 mb-4 h-16 w-16">dns</mat-icon>
+      <h3 class="text-xl font-semibold text-gray-300 mb-2">No Datasources Yet</h3>
+      <p class="text-gray-500 mb-6">Connect your first database to start building semantic models.</p>
+      <button mat-stroked-button color="primary" (click)="openCreateDialog()">
+        CONNECT DATABASE
+      </button>
+    </div>
+  </div>
+</div>

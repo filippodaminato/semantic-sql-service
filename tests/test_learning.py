@@ -209,3 +209,157 @@ def test_generation_trace_crud(client):
     
     response = client.get(f"/api/v1/learning/generation-traces/{trace_id}")
     assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+# =============================================================================
+# EDGE CASE TESTS FOR 100% COVERAGE
+# =============================================================================
+
+def test_get_all_golden_sql(client, sample_datasource_id):
+    """Test getting all golden SQL examples"""
+    client.post("/api/v1/learning/golden-sql", json={
+        "datasource_id": str(sample_datasource_id),
+        "prompt_text": "List query",
+        "sql_query": "SELECT 1",
+        "complexity": 1
+    })
+    
+    response = client.get("/api/v1/learning/golden-sql")
+    assert response.status_code == status.HTTP_200_OK
+    assert isinstance(response.json(), list)
+
+
+def test_get_golden_sql_not_found(client):
+    """Test getting a golden SQL that doesn't exist"""
+    response = client.get(f"/api/v1/learning/golden-sql/{uuid4()}")
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+def test_update_golden_sql_not_found(client):
+    """Test updating a golden SQL that doesn't exist"""
+    response = client.put(f"/api/v1/learning/golden-sql/{uuid4()}", json={
+        "prompt_text": "New Prompt"
+    })
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+def test_update_golden_sql_invalid_sql(client, sample_datasource_id):
+    """Test updating golden SQL with invalid SQL syntax fails"""
+    golden = client.post("/api/v1/learning/golden-sql", json={
+        "datasource_id": str(sample_datasource_id),
+        "prompt_text": "Valid",
+        "sql_query": "SELECT 1",
+        "complexity": 1
+    }).json()
+    
+    response = client.put(f"/api/v1/learning/golden-sql/{golden['id']}", json={
+        "sql_query": "SELECT FROM WHERE"  # Invalid
+    })
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+
+def test_update_golden_sql_verified(client, sample_datasource_id):
+    """Test updating verified status"""
+    golden = client.post("/api/v1/learning/golden-sql", json={
+        "datasource_id": str(sample_datasource_id),
+        "prompt_text": "Verify test",
+        "sql_query": "SELECT 1",
+        "complexity": 1,
+        "verified": False
+    }).json()
+    
+    response = client.put(f"/api/v1/learning/golden-sql/{golden['id']}", json={
+        "verified": True
+    })
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json()["verified"] is True
+
+
+def test_delete_golden_sql_not_found(client):
+    """Test deleting a golden SQL that doesn't exist"""
+    response = client.delete(f"/api/v1/learning/golden-sql/{uuid4()}")
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+def test_get_all_ambiguity_logs(client):
+    """Test getting all ambiguity logs"""
+    response = client.get("/api/v1/learning/ambiguity-logs")
+    assert response.status_code == status.HTTP_200_OK
+    assert isinstance(response.json(), list)
+
+
+def test_get_ambiguity_log_not_found(client):
+    """Test getting an ambiguity log that doesn't exist"""
+    response = client.get(f"/api/v1/learning/ambiguity-logs/{uuid4()}")
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+def test_update_ambiguity_log_not_found(client):
+    """Test updating an ambiguity log that doesn't exist"""
+    response = client.put(f"/api/v1/learning/ambiguity-logs/{uuid4()}", json={
+        "user_resolution": "Updated"
+    })
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+def test_update_ambiguity_log_detected_ambiguity(client):
+    """Test updating detected_ambiguity field"""
+    log = client.post("/api/v1/learning/ambiguity-logs", json={
+        "user_query": "Ambiguous query",
+        "detected_ambiguity": {"options": ["A"]},
+        "user_resolution": None
+    }).json()
+    
+    response = client.put(f"/api/v1/learning/ambiguity-logs/{log['id']}", json={
+        "detected_ambiguity": {"options": ["A", "B", "C"]}
+    })
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json()["detected_ambiguity"]["options"] == ["A", "B", "C"]
+
+
+def test_delete_ambiguity_log_not_found(client):
+    """Test deleting an ambiguity log that doesn't exist"""
+    response = client.delete(f"/api/v1/learning/ambiguity-logs/{uuid4()}")
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+def test_get_all_generation_traces(client):
+    """Test getting all generation traces"""
+    response = client.get("/api/v1/learning/generation-traces")
+    assert response.status_code == status.HTTP_200_OK
+    assert isinstance(response.json(), list)
+
+
+def test_get_generation_trace_not_found(client):
+    """Test getting a generation trace that doesn't exist"""
+    response = client.get(f"/api/v1/learning/generation-traces/{uuid4()}")
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+def test_update_generation_trace_not_found(client):
+    """Test updating a generation trace that doesn't exist"""
+    response = client.put(f"/api/v1/learning/generation-traces/{uuid4()}", json={
+        "user_feedback": 0
+    })
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+def test_update_generation_trace_generated_sql(client):
+    """Test updating generated_sql field"""
+    trace = client.post("/api/v1/learning/generation-traces", json={
+        "user_prompt": "SQL test",
+        "generated_sql": "SELECT 1"
+    }).json()
+    
+    response = client.put(f"/api/v1/learning/generation-traces/{trace['id']}", json={
+        "generated_sql": "SELECT 2"
+    })
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json()["generated_sql"] == "SELECT 2"
+
+
+def test_delete_generation_trace_not_found(client):
+    """Test deleting a generation trace that doesn't exist"""
+    response = client.delete(f"/api/v1/learning/generation-traces/{uuid4()}")
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+

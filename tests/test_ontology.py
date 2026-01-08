@@ -477,3 +477,206 @@ def test_delete_relationship(client, sample_datasource_id):
     # Verify deletion
     response = client.get(f"/api/v1/ontology/relationships/{rel_id}")
     assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+# =============================================================================
+# EDGE CASE TESTS FOR 100% COVERAGE
+# =============================================================================
+
+def test_get_all_datasources(client, sample_datasource):
+    """Test getting all datasources"""
+    response = client.get("/api/v1/ontology/datasources")
+    assert response.status_code == status.HTTP_200_OK
+    assert isinstance(response.json(), list)
+    assert len(response.json()) >= 1
+
+
+def test_get_datasource_not_found(client):
+    """Test getting a datasource that doesn't exist"""
+    response = client.get(f"/api/v1/ontology/datasources/{uuid4()}")
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+def test_update_datasource_not_found(client):
+    """Test updating a datasource that doesn't exist"""
+    response = client.put(f"/api/v1/ontology/datasources/{uuid4()}", json={
+        "name": "New Name"
+    })
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+def test_update_datasource_description(client, sample_datasource_id):
+    """Test updating datasource description and context_signature"""
+    response = client.put(f"/api/v1/ontology/datasources/{sample_datasource_id}", json={
+        "description": "New description",
+        "context_signature": "new, context, signature"
+    })
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json()["description"] == "New description"
+    assert response.json()["context_signature"] == "new, context, signature"
+
+
+def test_delete_datasource_not_found(client):
+    """Test deleting a datasource that doesn't exist"""
+    response = client.delete(f"/api/v1/ontology/datasources/{uuid4()}")
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+def test_get_all_tables(client, sample_datasource_id):
+    """Test getting all tables"""
+    client.post("/api/v1/ontology/tables", json={
+        "datasource_id": str(sample_datasource_id),
+        "physical_name": "t_list_test",
+        "semantic_name": "List Test",
+        "columns": []
+    })
+    
+    response = client.get("/api/v1/ontology/tables")
+    assert response.status_code == status.HTTP_200_OK
+    assert isinstance(response.json(), list)
+
+
+def test_get_table_not_found(client):
+    """Test getting a table that doesn't exist"""
+    response = client.get(f"/api/v1/ontology/tables/{uuid4()}")
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+def test_update_table_not_found(client):
+    """Test updating a table that doesn't exist"""
+    response = client.put(f"/api/v1/ontology/tables/{uuid4()}", json={
+        "semantic_name": "New Name"
+    })
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+def test_update_table_ddl_context(client, sample_datasource_id):
+    """Test updating table ddl_context (physical_name is not updatable)"""
+    table = client.post("/api/v1/ontology/tables", json={
+        "datasource_id": str(sample_datasource_id),
+        "physical_name": "t_upd_ddl",
+        "semantic_name": "Update DDL",
+        "columns": []
+    }).json()
+    
+    response = client.put(f"/api/v1/ontology/tables/{table['id']}", json={
+        "ddl_context": "CREATE TABLE t_upd_ddl (id INT PRIMARY KEY)"
+    })
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json()["ddl_context"] == "CREATE TABLE t_upd_ddl (id INT PRIMARY KEY)"
+
+
+def test_delete_table_not_found(client):
+    """Test deleting a table that doesn't exist"""
+    response = client.delete(f"/api/v1/ontology/tables/{uuid4()}")
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+def test_get_column(client, sample_datasource_id):
+    """Test getting a specific column"""
+    table = client.post("/api/v1/ontology/tables", json={
+        "datasource_id": str(sample_datasource_id),
+        "physical_name": "t_col_get",
+        "semantic_name": "Col Get",
+        "columns": [{"name": "col_test", "data_type": "INT"}]
+    }).json()
+    col_id = table["columns"][0]["id"]
+    
+    response = client.get(f"/api/v1/ontology/columns/{col_id}")
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json()["name"] == "col_test"
+
+
+def test_get_column_not_found(client):
+    """Test getting a column that doesn't exist"""
+    response = client.get(f"/api/v1/ontology/columns/{uuid4()}")
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+def test_update_column_description_and_data_type(client, sample_datasource_id):
+    """Test updating column description and data_type"""
+    table = client.post("/api/v1/ontology/tables", json={
+        "datasource_id": str(sample_datasource_id),
+        "physical_name": "t_col_upd",
+        "semantic_name": "Col Update",
+        "columns": [{"name": "col_test", "data_type": "VARCHAR"}]
+    }).json()
+    col_id = table["columns"][0]["id"]
+    
+    response = client.patch(f"/api/v1/ontology/columns/{col_id}", json={
+        "description": "New Description",
+        "data_type": "VARCHAR(100)"
+    })
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json()["description"] == "New Description"
+    assert response.json()["data_type"] == "VARCHAR(100)"
+
+
+def test_delete_column_not_found(client):
+    """Test deleting a column that doesn't exist"""
+    response = client.delete(f"/api/v1/ontology/columns/{uuid4()}")
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+def test_get_all_relationships(client, sample_datasource_id):
+    """Test getting all relationships"""
+    response = client.get("/api/v1/ontology/relationships")
+    assert response.status_code == status.HTTP_200_OK
+    assert isinstance(response.json(), list)
+
+
+def test_get_relationship_not_found(client):
+    """Test getting a relationship that doesn't exist"""
+    response = client.get(f"/api/v1/ontology/relationships/{uuid4()}")
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+def test_update_relationship_not_found(client):
+    """Test updating a relationship that doesn't exist"""
+    response = client.put(f"/api/v1/ontology/relationships/{uuid4()}", json={
+        "relationship_type": "ONE_TO_ONE"
+    })
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+def test_delete_relationship_not_found(client):
+    """Test deleting a relationship that doesn't exist"""
+    response = client.delete(f"/api/v1/ontology/relationships/{uuid4()}")
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+def test_create_relationship_invalid_source_column(client, sample_datasource_id):
+    """Test creating relationship with invalid source column"""
+    table = client.post("/api/v1/ontology/tables", json={
+        "datasource_id": str(sample_datasource_id),
+        "physical_name": "t_rel_test",
+        "semantic_name": "Rel Test",
+        "columns": [{"name": "id", "data_type": "INT"}]
+    }).json()
+    col_id = table["columns"][0]["id"]
+    
+    response = client.post("/api/v1/ontology/relationships", json={
+        "source_column_id": str(uuid4()),  # Invalid
+        "target_column_id": col_id,
+        "relationship_type": "ONE_TO_MANY"
+    })
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+def test_create_relationship_invalid_target_column(client, sample_datasource_id):
+    """Test creating relationship with invalid target column"""
+    table = client.post("/api/v1/ontology/tables", json={
+        "datasource_id": str(sample_datasource_id),
+        "physical_name": "t_rel_test2",
+        "semantic_name": "Rel Test 2",
+        "columns": [{"name": "id", "data_type": "INT"}]
+    }).json()
+    col_id = table["columns"][0]["id"]
+    
+    response = client.post("/api/v1/ontology/relationships", json={
+        "source_column_id": col_id,
+        "target_column_id": str(uuid4()),  # Invalid
+        "relationship_type": "ONE_TO_MANY"
+    })
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+

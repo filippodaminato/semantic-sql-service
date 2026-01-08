@@ -269,3 +269,109 @@ def test_delete_context_rule(client, sample_datasource_id):
     
     response = client.get(f"/api/v1/context/rules/{rule['id']}")
     assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+# =============================================================================
+# EDGE CASE TESTS FOR 100% COVERAGE
+# =============================================================================
+
+def test_get_all_nominal_values(client, sample_datasource_id):
+    """Test getting all nominal values"""
+    table = client.post("/api/v1/ontology/tables", json={
+        "datasource_id": str(sample_datasource_id),
+        "physical_name": "t_list_vals", "semantic_name": "List Values Table", 
+        "columns": [{"name": "code", "data_type": "VARCHAR"}]
+    }).json()
+    col_id = table["columns"][0]["id"]
+    
+    client.post("/api/v1/context/nominal-values", json={
+        "column_id": col_id,
+        "values": [{"raw": "X", "label": "X Label"}]
+    })
+    
+    response = client.get("/api/v1/context/nominal-values")
+    assert response.status_code == status.HTTP_200_OK
+    assert isinstance(response.json(), list)
+
+
+def test_get_nominal_value_not_found(client):
+    """Test getting a nominal value that doesn't exist"""
+    response = client.get(f"/api/v1/context/nominal-values/{uuid4()}")
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+def test_update_nominal_value_not_found(client):
+    """Test updating a nominal value that doesn't exist"""
+    response = client.put(f"/api/v1/context/nominal-values/{uuid4()}", json={
+        "value_label": "New Label"
+    })
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+def test_update_nominal_value_raw_only(client, sample_datasource_id):
+    """Test updating only the raw value without changing label"""
+    table = client.post("/api/v1/ontology/tables", json={
+        "datasource_id": str(sample_datasource_id),
+        "physical_name": "t_upd_raw", "semantic_name": "Update Raw Table", 
+        "columns": [{"name": "code", "data_type": "VARCHAR"}]
+    }).json()
+    col_id = table["columns"][0]["id"]
+    
+    val = client.post("/api/v1/context/nominal-values", json={
+        "column_id": col_id,
+        "values": [{"raw": "OLD", "label": "Old Label"}]
+    }).json()[0]
+    
+    # Update only raw value
+    response = client.put(f"/api/v1/context/nominal-values/{val['id']}", json={
+        "value_raw": "NEW"
+    })
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json()["value_raw"] == "NEW"
+    assert response.json()["value_label"] == "Old Label"
+
+
+def test_delete_nominal_value_not_found(client):
+    """Test deleting a nominal value that doesn't exist"""
+    response = client.delete(f"/api/v1/context/nominal-values/{uuid4()}")
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+def test_get_all_context_rules(client, sample_datasource_id):
+    """Test getting all context rules"""
+    table = client.post("/api/v1/ontology/tables", json={
+        "datasource_id": str(sample_datasource_id),
+        "physical_name": "t_list_rules", "semantic_name": "List Rules Table", 
+        "columns": [{"name": "code", "data_type": "VARCHAR"}]
+    }).json()
+    col_id = table["columns"][0]["id"]
+    
+    client.post("/api/v1/context/rules", json={
+        "column_id": col_id,
+        "rule_text": "Some rule"
+    })
+    
+    response = client.get("/api/v1/context/rules")
+    assert response.status_code == status.HTTP_200_OK
+    assert isinstance(response.json(), list)
+
+
+def test_get_context_rule_not_found(client):
+    """Test getting a context rule that doesn't exist"""
+    response = client.get(f"/api/v1/context/rules/{uuid4()}")
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+def test_update_context_rule_not_found(client):
+    """Test updating a context rule that doesn't exist"""
+    response = client.put(f"/api/v1/context/rules/{uuid4()}", json={
+        "rule_text": "New Rule"
+    })
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+def test_delete_context_rule_not_found(client):
+    """Test deleting a context rule that doesn't exist"""
+    response = client.delete(f"/api/v1/context/rules/{uuid4()}")
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+

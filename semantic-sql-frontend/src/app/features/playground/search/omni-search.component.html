@@ -1,0 +1,102 @@
+<div class="container mx-auto p-6 max-w-5xl">
+    <div class="mb-8 text-center">
+        <h1 class="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-purple-400 to-blue-400">
+            Omni-Search Playground
+        </h1>
+        <p class="text-gray-400 mt-2">Test semantic retrieval capabilities across your knowledge base</p>
+    </div>
+
+    <!-- Search Box -->
+    <div class="bg-[#141a23] p-6 rounded-xl border border-gray-700 shadow-xl mb-8">
+        <div class="flex gap-4">
+            <mat-form-field class="flex-1" appearance="outline">
+                <mat-label>Natural Language Query</mat-label>
+                <input matInput [(ngModel)]="query" (keyup.enter)="search()"
+                    placeholder="e.g., Show me revenue by region">
+                <mat-icon matSuffix class="text-gray-400">search</mat-icon>
+            </mat-form-field>
+
+            <button mat-flat-button color="primary" class="h-[56px] px-8" (click)="search()" [disabled]="loading">
+                <ng-container *ngIf="!loading; else spinner">SEARCH</ng-container>
+                <ng-template #spinner><mat-spinner diameter="20" class="text-white"></mat-spinner></ng-template>
+            </button>
+        </div>
+
+        <!-- Filters -->
+        <div class="flex gap-4 mt-2">
+            <mat-form-field class="w-1/3" appearance="outline" subscriptSizing="dynamic">
+                <mat-label>Datasource Slug</mat-label>
+                <input matInput [(ngModel)]="datasourceSlug" placeholder="e.g., e_commerce_db">
+            </mat-form-field>
+
+            <mat-form-field class="w-2/3" appearance="outline" subscriptSizing="dynamic">
+                <mat-label>Entity Types</mat-label>
+                <mat-select multiple [(ngModel)]="selectedEntityTypes">
+                    <mat-option value="TABLE">Tables</mat-option>
+                    <mat-option value="metric">Metrics</mat-option>
+                    <mat-option value="COLUMN">Columns</mat-option>
+                </mat-select>
+            </mat-form-field>
+        </div>
+    </div>
+
+    <!-- Results -->
+    <div *ngIf="results" class="space-y-4">
+        <h2 class="text-lg font-semibold text-gray-300">Results ({{results.total}})</h2>
+
+        <div *ngFor="let hit of results.hits"
+            class="bg-[#141a23] p-4 rounded-lg border border-gray-700 shadow-sm hover:border-blue-500 transition-all border-l-4"
+            [ngClass]="{
+           'border-l-blue-500': hit.type === 'TABLE',
+           'border-l-green-500': hit.type === 'METRIC',
+           'border-l-orange-500': hit.type === 'COLUMN'
+         }">
+
+            <div class="flex justify-between items-start">
+                <div>
+                    <span class="text-xs font-bold uppercase tracking-wider mb-1 block" [ngClass]="{
+                  'text-blue-400': hit.type === 'TABLE',
+                  'text-green-400': hit.type === 'METRIC',
+                  'text-orange-400': hit.type === 'COLUMN'
+                }">
+                        {{hit.type}}
+                    </span>
+                    <h3 class="text-xl font-bold text-gray-100">{{hit.name}}</h3>
+
+                    <!-- Type Specific Details -->
+                    <ng-container [ngSwitch]="hit.type">
+                        <p *ngSwitchCase="'TABLE'" class="text-gray-400 text-sm mt-1 italic">{{$any(hit).physical_name}}
+                        </p>
+                        <p *ngSwitchCase="'METRIC'"
+                            class="font-mono text-xs bg-slate-800 p-1 rounded mt-1 text-gray-300 border border-slate-700">
+                            {{$any(hit).sql_template}}
+                        </p>
+                        <p *ngSwitchCase="'COLUMN'" class="text-gray-400 text-sm mt-1">
+                            in table <span class="font-medium text-gray-200">{{$any(hit).table_name}}</span> • <span
+                                class="font-mono text-xs text-blue-300">{{$any(hit).data_type}}</span>
+                        </p>
+                    </ng-container>
+
+                    <p class="text-gray-300 mt-2">{{$any(hit).description || 'No description available'}}</p>
+
+                    <!-- Critical Rules Warning -->
+                    <div *ngIf="$any(hit).critical_rules?.length"
+                        class="mt-3 bg-red-900/20 border border-red-800 p-2 rounded">
+                        <div class="flex items-center gap-2 text-red-400 text-sm font-semibold mb-1">
+                            <mat-icon class="text-sm h-4 w-4">warning</mat-icon> Critical Rules
+                        </div>
+                        <ul class="list-disc list-inside text-xs text-red-300">
+                            <li *ngFor="let rule of $any(hit).critical_rules">{{rule}}</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="text-right">
+                    <div class="text-2xl font-bold" [ngClass]="getScoreColor(hit.score)">{{hit.score | percent:'1.0-0'}}
+                    </div>
+                    <div class="text-xs text-slate-500">Relevance</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>

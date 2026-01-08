@@ -29,6 +29,7 @@ RUN pip install --no-cache-dir \
     pgvector==0.2.3 \
     python-multipart==0.0.6 \
     httpx==0.27.0 \
+    networkx>=3.2 \
     pytest \
     pytest-asyncio \
     pytest-cov

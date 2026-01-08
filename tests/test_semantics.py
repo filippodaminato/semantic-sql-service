@@ -291,3 +291,177 @@ def test_delete_synonym(client, sample_datasource_id):
     
     response = client.get(f"/api/v1/semantics/synonyms/{syn['id']}")
     assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+# =============================================================================
+# EDGE CASE TESTS FOR 100% COVERAGE
+# =============================================================================
+
+def test_get_all_metrics(client):
+    """Test getting all metrics"""
+    response = client.get("/api/v1/semantics/metrics")
+    assert response.status_code == status.HTTP_200_OK
+    assert isinstance(response.json(), list)
+
+
+def test_get_metric(client, sample_datasource_id):
+    """Test getting a specific metric"""
+    table = client.post("/api/v1/ontology/tables", json={
+        "datasource_id": str(sample_datasource_id),
+        "physical_name": "t_get_metric", "semantic_name": "Get Metric Table", 
+        "columns": [{"name": "val", "data_type": "INT"}]
+    }).json()
+    
+    metric = client.post("/api/v1/semantics/metrics", json={
+        "name": "Get Test Metric",
+        "sql_expression": "SUM(t_get_metric.val)",
+        "required_table_ids": [table["id"]]
+    }).json()
+    
+    response = client.get(f"/api/v1/semantics/metrics/{metric['id']}")
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json()["name"] == "Get Test Metric"
+
+
+def test_get_metric_not_found(client):
+    """Test getting a metric that doesn't exist"""
+    response = client.get(f"/api/v1/semantics/metrics/{uuid4()}")
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+def test_update_metric_not_found(client):
+    """Test updating a metric that doesn't exist"""
+    response = client.put(f"/api/v1/semantics/metrics/{uuid4()}", json={
+        "name": "New Name"
+    })
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+def test_update_metric_sql_expression(client, sample_datasource_id):
+    """Test updating metric sql_expression and filter_condition"""
+    table = client.post("/api/v1/ontology/tables", json={
+        "datasource_id": str(sample_datasource_id),
+        "physical_name": "t_upd_sql", "semantic_name": "Update SQL Table", 
+        "columns": [{"name": "val", "data_type": "INT"}]
+    }).json()
+    
+    metric = client.post("/api/v1/semantics/metrics", json={
+        "name": "SQL Update Metric",
+        "sql_expression": "SUM(t_upd_sql.val)",
+        "required_table_ids": [table["id"]]
+    }).json()
+    
+    response = client.put(f"/api/v1/semantics/metrics/{metric['id']}", json={
+        "sql_expression": "AVG(t_upd_sql.val)",
+        "filter_condition": "val > 0"
+    })
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json()["calculation_sql"] == "AVG(t_upd_sql.val)"
+    assert response.json()["filter_condition"] == "val > 0"
+
+
+def test_delete_metric_not_found(client):
+    """Test deleting a metric that doesn't exist"""
+    response = client.delete(f"/api/v1/semantics/metrics/{uuid4()}")
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+def test_get_all_synonyms(client):
+    """Test getting all synonyms"""
+    response = client.get("/api/v1/semantics/synonyms")
+    assert response.status_code == status.HTTP_200_OK
+    assert isinstance(response.json(), list)
+
+
+def test_get_synonym(client, sample_datasource_id):
+    """Test getting a specific synonym"""
+    table = client.post("/api/v1/ontology/tables", json={
+        "datasource_id": str(sample_datasource_id),
+        "physical_name": "t_get_syn", "semantic_name": "Get Syn", "columns": []
+    }).json()
+    
+    syn = client.post("/api/v1/semantics/synonyms", json={
+        "term": "Get Synonym Test",
+        "target_type": "TABLE",
+        "target_id": table["id"]
+    }).json()
+    
+    response = client.get(f"/api/v1/semantics/synonyms/{syn['id']}")
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json()["term"] == "Get Synonym Test"
+
+
+def test_get_synonym_not_found(client):
+    """Test getting a synonym that doesn't exist"""
+    response = client.get(f"/api/v1/semantics/synonyms/{uuid4()}")
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+def test_update_synonym_not_found(client):
+    """Test updating a synonym that doesn't exist"""
+    response = client.put(f"/api/v1/semantics/synonyms/{uuid4()}", json={
+        "term": "New Term"
+    })
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+def test_delete_synonym_not_found(client):
+    """Test deleting a synonym that doesn't exist"""
+    response = client.delete(f"/api/v1/semantics/synonyms/{uuid4()}")
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+def test_create_synonyms_bulk_with_nonexistent_target(client):
+    """Test bulk creating synonyms with nonexistent target ID still succeeds (FK not validated)"""
+    response = client.post("/api/v1/semantics/synonyms/bulk", json={
+        "target_id": str(uuid4()),  # Non-existent but accepted
+        "target_type": "TABLE",
+        "terms": ["Term1", "Term2"]
+    })
+    # API doesn't validate target_id existence for synonyms
+    assert response.status_code == status.HTTP_201_CREATED
+    assert len(response.json()) == 2
+
+
+def test_create_synonyms_for_column(client, sample_datasource_id):
+    """Test creating synonyms for a COLUMN target type"""
+    table = client.post("/api/v1/ontology/tables", json={
+        "datasource_id": str(sample_datasource_id),
+        "physical_name": "t_col_syn", "semantic_name": "Col Syn", 
+        "columns": [{"name": "col_test", "data_type": "INT"}]
+    }).json()
+    col_id = table["columns"][0]["id"]
+    
+    response = client.post("/api/v1/semantics/synonyms/bulk", json={
+        "target_id": col_id,
+        "target_type": "COLUMN",
+        "terms": ["Column Alias", "Column Alt Name"]
+    })
+    assert response.status_code == status.HTTP_201_CREATED
+    assert len(response.json()) == 2
+    assert all(s["target_type"] == "COLUMN" for s in response.json())
+
+
+def test_create_synonyms_for_metric(client, sample_datasource_id):
+    """Test creating synonyms for a METRIC target type"""
+    table = client.post("/api/v1/ontology/tables", json={
+        "datasource_id": str(sample_datasource_id),
+        "physical_name": "t_metric_syn", "semantic_name": "Metric Syn", 
+        "columns": [{"name": "val", "data_type": "INT"}]
+    }).json()
+    
+    metric = client.post("/api/v1/semantics/metrics", json={
+        "name": "Metric for Synonyms",
+        "sql_expression": "SUM(t_metric_syn.val)",
+        "required_table_ids": [table["id"]]
+    }).json()
+    
+    response = client.post("/api/v1/semantics/synonyms/bulk", json={
+        "target_id": metric["id"],
+        "target_type": "METRIC",
+        "terms": ["Metric Alias", "Metric Alt Name"]
+    })
+    assert response.status_code == status.HTTP_201_CREATED
+    assert len(response.json()) == 2
+    assert all(s["target_type"] == "METRIC" for s in response.json())
+

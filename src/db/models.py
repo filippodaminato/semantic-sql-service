@@ -115,12 +115,14 @@ class ColumnNode(Base):
     source_relationships = relationship(
         "SchemaEdge",
         foreign_keys="SchemaEdge.source_column_id",
-        back_populates="source_column"
+        back_populates="source_column",
+        cascade="all, delete-orphan"
     )
     target_relationships = relationship(
         "SchemaEdge",
         foreign_keys="SchemaEdge.target_column_id",
-        back_populates="target_column"
+        back_populates="target_column",
+        cascade="all, delete-orphan"
     )
     context_rules = relationship("ColumnContextRule", back_populates="column", cascade="all, delete-orphan")
     nominal_values = relationship("LowCardinalityValue", back_populates="column", cascade="all, delete-orphan")
@@ -138,6 +140,8 @@ class SchemaEdge(Base):
     target_column_id = Column(UUID(as_uuid=True), ForeignKey("column_nodes.id"), nullable=False)
     relationship_type = Column(SQLEnum(RelationshipType), nullable=False, doc="1:1, 1:N, N:N")
     is_inferred = Column(Boolean, default=False, nullable=False, doc="False se esiste una FK fisica, True se virtuale")
+    description = Column(Text, nullable=True, doc="Descrizione semantica della relazione, e.g. 'Cliente che ha effettuato l'ordine'")
+    context_note = Column(Text, nullable=True, doc="Note aggiuntive di contesto, e.g. why this relationship exists")
     
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     

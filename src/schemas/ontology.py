@@ -18,6 +18,7 @@ class ColumnCreateDTO(BaseModel):
 
 class ColumnUpdateDTO(BaseModel):
     """DTO for updating a column"""
+    name: Optional[str] = Field(None, min_length=1, max_length=255)
     semantic_name: Optional[str] = Field(None, max_length=255)
     description: Optional[str] = None
     context_note: Optional[str] = None
@@ -93,6 +94,7 @@ class RelationshipCreateDTO(BaseModel):
         description="Type of relationship"
     )
     is_inferred: bool = Field(default=False, description="Whether relationship is inferred")
+    description: Optional[str] = Field(None, description="Semantic description of the relationship")
 
 
 class RelationshipUpdateDTO(BaseModel):
@@ -102,6 +104,7 @@ class RelationshipUpdateDTO(BaseModel):
         pattern="^(ONE_TO_ONE|ONE_TO_MANY|MANY_TO_MANY)$"
     )
     is_inferred: Optional[bool] = None
+    description: Optional[str] = None
 
 
 class RelationshipResponseDTO(BaseModel):
@@ -111,6 +114,42 @@ class RelationshipResponseDTO(BaseModel):
     target_column_id: UUID
     relationship_type: str
     is_inferred: bool
+    description: Optional[str]
     created_at: datetime
     
     model_config = ConfigDict(from_attributes=True)
+
+
+class RelationshipWithContextDTO(BaseModel):
+    """DTO for relationship with source/target table context"""
+    id: UUID
+    source_column_id: UUID
+    source_column_name: str
+    source_table_id: UUID
+    source_table_name: str
+    target_column_id: UUID
+    target_column_name: str
+    target_table_id: UUID
+    target_table_name: str
+    relationship_type: str
+    is_inferred: bool
+    description: Optional[str]
+    created_at: datetime
+
+
+class TableFullResponseDTO(BaseModel):
+    """DTO for table with columns and all relationships"""
+    id: UUID
+    datasource_id: UUID
+    physical_name: str
+    semantic_name: str
+    description: Optional[str]
+    ddl_context: Optional[str]
+    created_at: datetime
+    updated_at: Optional[datetime]
+    columns: List[ColumnResponseDTO] = []
+    outgoing_relationships: List[RelationshipWithContextDTO] = []
+    incoming_relationships: List[RelationshipWithContextDTO] = []
+    
+    model_config = ConfigDict(from_attributes=True)
+
