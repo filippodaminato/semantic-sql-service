@@ -1,38 +1,89 @@
-<div class="h-full flex flex-col p-6 max-w-7xl mx-auto">
-  <!-- Header -->
-  <div class="flex justify-between items-center mb-8">
-    <div>
-      <h1 class="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-purple-400 mb-2">
-        Datasources
-      </h1>
-      <p class="text-gray-400 text-lg">Manage your database connections and semantic layer</p>
-    </div>
-    <button mat-flat-button color="primary" class="h-12 px-6 text-base" (click)="openCreateDialog()">
-      <mat-icon>add</mat-icon> NEW DATASOURCE
-    </button>
+<div class="min-h-full w-full bg-[#0a0e14] relative overflow-hidden">
+
+  <!-- Ambient Background Glow -->
+  <div
+    class="absolute top-0 left-0 w-full h-[500px] bg-gradient-to-b from-blue-900/10 via-transparent to-transparent pointer-events-none">
+  </div>
+  <div
+    class="absolute top-[-20%] right-[-10%] w-[600px] h-[600px] bg-indigo-600/10 rounded-full blur-[120px] pointer-events-none">
   </div>
 
-  <!-- Grid Layout -->
-  <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-    <div *ngFor="let ds of datasources"
-      class="bg-[#141a23] rounded-xl border border-gray-700 p-6 flex flex-col hover:border-blue-500 hover:shadow-lg transition-all cursor-pointer group relative overflow-hidden"
-      [routerLink]="['/admin/datasources', ds.id]">
+  <div class="h-full flex flex-col p-8 max-w-7xl mx-auto relative z-10">
 
-      <!-- Decorative gradient orb -->
-      <div
-        class="absolute -top-10 -right-10 w-32 h-32 bg-blue-500/10 rounded-full blur-2xl group-hover:bg-blue-500/20 transition-all">
-      </div>
-
-      <div class="flex justify-between items-start mb-4 z-10">
-        <div class="p-3 rounded-lg bg-gray-800 border border-gray-700">
-          <mat-icon class="text-blue-400">dns</mat-icon>
+    <!-- Header -->
+    <div class="flex justify-between items-end mb-12 border-b border-white/5 pb-6">
+      <div>
+        <div class="flex items-center gap-3 mb-2">
+          <div class="p-2 bg-blue-500/10 rounded-lg border border-blue-500/20">
+            <mat-icon class="text-blue-400">dns</mat-icon>
+          </div>
+          <h1 class="text-4xl font-black text-white tracking-tight">Datasources</h1>
         </div>
-        <!-- Actions Menu -->
-        <button mat-icon-button (click)="$event.stopPropagation();" [matMenuTriggerFor]="menu"
-          class="hover:bg-gray-800 rounded-full">
-          <mat-icon class="text-gray-500">more_vert</mat-icon>
-        </button>
-        <mat-menu #menu="matMenu" xPosition="before" class="bg-[#1e293b] border border-gray-700">
+        <p class="text-gray-400 text-lg font-light tracking-wide pl-1">
+          Configure and manage your enterprise knowledge bases
+        </p>
+      </div>
+      <button mat-flat-button color="primary"
+        class="!h-12 !px-8 !text-base !rounded-lg shadow-[0_0_20px_rgba(37,99,235,0.4)]" (click)="openCreateDialog()">
+        <mat-icon class="mr-2">add_circle</mat-icon> CONFIGURE SOURCE
+      </button>
+    </div>
+
+    <!-- Grid Layout -->
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+
+      <div *ngFor="let ds of datasources"
+        class="group relative bg-[#141a23] rounded-2xl border border-white/5 p-6 cursor-pointer overflow-hidden transition-all duration-300 hover:border-blue-500/50 hover:shadow-[0_0_30px_rgba(59,130,246,0.15)] hover:-translate-y-1"
+        [routerLink]="['/admin/datasources', ds.id]">
+
+        <!-- Hover Gradient Overlay -->
+        <div
+          class="absolute inset-0 bg-gradient-to-br from-blue-600/5 to-purple-600/5 opacity-0 group-hover:opacity-100 transition-opacity duration-500">
+        </div>
+
+        <!-- Top Row: Icon & Menu -->
+        <div class="flex justify-between items-start mb-6 relative z-10">
+          <div
+            class="h-12 w-12 rounded-xl bg-[#0a0e14] border border-white/10 flex items-center justify-center group-hover:border-blue-500/30 transition-colors">
+            <!-- Engine Logo Placeholder / Icon -->
+            <mat-icon *ngIf="ds.engine.includes('postgres')" class="text-blue-400 scale-125">storage</mat-icon>
+            <mat-icon *ngIf="!ds.engine.includes('postgres')" class="text-gray-400 scale-125">dns</mat-icon>
+          </div>
+
+          <button mat-icon-button (click)="$event.stopPropagation();" [matMenuTriggerFor]="menu"
+            class="!text-gray-600 hover:!text-white hover:bg-white/5 rounded-full transition-colors">
+            <mat-icon>more_horiz</mat-icon>
+          </button>
+        </div>
+
+        <!-- Main Info -->
+        <div class="relative z-10">
+          <h3 class="text-xl font-bold text-white mb-1 group-hover:text-blue-400 transition-colors">{{ds.name}}</h3>
+          <div class="flex items-center gap-2 mb-4">
+            <span
+              class="px-2 py-0.5 rounded text-[10px] font-mono bg-blue-900/30 text-blue-300 border border-blue-800/50 uppercase tracking-wider">
+              {{ds.engine}}
+            </span>
+            <span class="text-gray-600 text-xs font-mono">•</span>
+            <span class="text-gray-500 text-xs font-mono truncate max-w-[150px]">{{ds.slug}}</span>
+          </div>
+
+          <p *ngIf="ds.description" class="text-gray-400 text-sm line-clamp-2 h-10 mb-2">
+            {{ds.description}}
+          </p>
+          <p *ngIf="!ds.description" class="text-gray-600 text-sm h-10 italic mb-2">
+            No description provided.
+          </p>
+        </div>
+
+        <!-- Footer: Meta -->
+        <div class="mt-6 pt-4 border-t border-white/5 flex justify-end items-center relative z-10">
+          <div class="text-[10px] text-gray-500 font-mono uppercase">
+            ID: {{ds.id.split('-')[0]}}...
+          </div>
+        </div>
+
+        <mat-menu #menu="matMenu" xPosition="before" class="!bg-[#1e293b] !border !border-gray-700">
           <button mat-menu-item (click)="refreshIndex(ds)">
             <mat-icon class="text-blue-400">sync</mat-icon>
             <span class="text-gray-300">Refresh Index</span>
@@ -44,30 +95,20 @@
         </mat-menu>
       </div>
 
-      <h3 class="text-xl font-bold text-gray-100 mb-1 z-10">{{ds.name}}</h3>
-      <p class="text-gray-500 font-mono text-xs mb-4 z-10">{{ds.slug}}</p>
-
-      <div class="mt-auto z-10">
-        <span
-          class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-800 text-gray-300 border border-gray-700">
-          {{ds.engine}}
-        </span>
+      <!-- Empty State (if needed) -->
+      <div *ngIf="datasources.length === 0"
+        class="col-span-full flex flex-col items-center justify-center p-20 border border-dashed border-gray-800 rounded-3xl bg-white/5">
+        <div class="p-6 bg-gray-900 rounded-full mb-6">
+          <mat-icon class="text-4xl text-gray-600 scale-150">power_off</mat-icon>
+        </div>
+        <h3 class="text-2xl font-bold text-gray-300 mb-2">No Datasources Found</h3>
+        <p class="text-gray-500 mb-8 max-w-md text-center">Get started by connecting your first database. The AI needs
+          data to work its magic!</p>
+        <button mat-stroked-button color="primary" class="!px-8 !h-12" (click)="openCreateDialog()">
+          CONFIGURE FIRST SOURCE
+        </button>
       </div>
 
-      <div
-        class="absolute bottom-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 to-purple-600 transform scale-x-0 group-hover:scale-x-100 transition-transform origin-left">
-      </div>
-    </div>
-
-    <!-- Empty State -->
-    <div *ngIf="datasources.length === 0"
-      class="col-span-full py-20 text-center border-2 border-dashed border-gray-700 rounded-xl bg-[#141a23]/50">
-      <mat-icon class="text-6xl text-gray-600 mb-4 h-16 w-16">dns</mat-icon>
-      <h3 class="text-xl font-semibold text-gray-300 mb-2">No Datasources Yet</h3>
-      <p class="text-gray-500 mb-6">Connect your first database to start building semantic models.</p>
-      <button mat-stroked-button color="primary" (click)="openCreateDialog()">
-        CONNECT DATABASE
-      </button>
     </div>
   </div>
 </div>

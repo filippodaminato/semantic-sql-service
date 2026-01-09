@@ -12,6 +12,10 @@ from uuid import UUID
 from pydantic import BaseModel, Field
 from datetime import datetime
 import json
+import re
+
+def slugify(text: str) -> str:
+    return re.sub(r'[^a-z0-9]+', '-', text.lower()).strip('-')
 
 from ..core.database import get_db
 from ..db.models import (
@@ -42,6 +46,7 @@ class DatasourceCreate(BaseModel):
 
 class DatasourceUpdate(BaseModel):
     name: Optional[str] = None
+    slug: Optional[str] = None
     description: Optional[str] = None
     context_signature: Optional[str] = None
     connection_string: Optional[str] = None
@@ -63,6 +68,7 @@ class DatasourceResponse(BaseModel):
 class TableCreate(BaseModel):
     datasource_id: UUID
     physical_name: str = Field(..., min_length=1)
+    slug: Optional[str] = None
     semantic_name: str = Field(..., min_length=1)
     description: Optional[str] = None
     ddl_context: Optional[str] = None
@@ -73,6 +79,7 @@ class TableResponse(BaseModel):
     id: UUID
     datasource_id: UUID
     physical_name: str
+    slug: str
     semantic_name: str
     description: Optional[str]
     ddl_context: Optional[str]
@@ -128,6 +135,7 @@ class RelationshipResponseDTO(BaseModel):
 
 class MetricCreate(BaseModel):
     name: str = Field(..., min_length=1)
+    slug: Optional[str] = None
     description: Optional[str] = None
     sql_expression: str = Field(..., min_length=1)
     required_table_ids: List[UUID] = []
@@ -149,11 +157,13 @@ class SynonymBulkCreate(BaseModel):
 
 class ContextRuleCreate(BaseModel):
     column_id: UUID
+    slug: Optional[str] = None
     rule_text: str = Field(..., min_length=1)
 
 
 class ValueManualCreate(BaseModel):
     raw: str
+    slug: Optional[str] = None
     label: str
 
 
@@ -169,6 +179,7 @@ class NominalValueUpdate(BaseModel):
 
 class GoldenSQLCreate(BaseModel):
     datasource_id: UUID
+    slug: Optional[str] = None
     prompt_text: str = Field(..., min_length=1)
     sql_query: str = Field(..., min_length=1)
     complexity: int = Field(default=1, ge=1, le=5)
@@ -250,16 +261,28 @@ def update_datasource(datasource_id: UUID, data: DatasourceUpdate, db: Session =
     
     if data.name is not None:
         ds.name = data.name
+    if data.slug is not None:
+        # Check uniqueness if slug changed
+        if data.slug != ds.slug:
+            existing = db.query(Datasource).filter(Datasource.slug == data.slug).first()
+            if existing:
+                raise HTTPException(status_code=409, detail=f"Slug '{data.slug}' already exists")
+            ds.slug = data.slug
+            
     if data.description is not None:
         ds.description = data.description
     if data.context_signature is not None:
         ds.context_signature = data.context_signature
     
-    # Recalculate embedding
-    text = f"{ds.description or ''} {ds.context_signature or ''}".strip()
-    if text:
-        ds.embedding = embedding_service.generate_embedding(text)
-    
+    # Re-generate embedding if description or context changed
+    if data.description is not None or data.context_signature is not None:
+        text = f"{ds.description or ''} {ds.context_signature or ''}".strip()
+        if text:
+            ds.embedding = embedding_service.generate_embedding(text)
+            
+    if data.connection_string is not None:
+        ds.connection_string = data.connection_string
+        
     db.commit()
     db.refresh(ds)
     return ds
@@ -326,6 +349,7 @@ def list_tables_by_datasource(datasource_id: UUID, db: Session = Depends(get_db)
         result.append({
             "id": str(t.id),
             "physical_name": t.physical_name,
+            "slug": t.slug,
             "semantic_name": t.semantic_name,
             "description": t.description,
             "column_count": len(cols),
@@ -333,6 +357,7 @@ def list_tables_by_datasource(datasource_id: UUID, db: Session = Depends(get_db)
                 {
                     "id": str(c.id), 
                     "name": c.name,
+                    "slug": c.slug,
                     "semantic_name": c.semantic_name,
                     "data_type": c.data_type,
                     "is_primary_key": c.is_primary_key,
@@ -360,9 +385,13 @@ def create_table(data: TableCreate, db: Session = Depends(get_db)):
     
     embedding = embedding_service.generate_embedding(f"{data.semantic_name} {data.description or ''}")
     
+    # Auto-generate slug if not provided
+    table_slug = data.slug or slugify(f"{ds.slug}-{data.physical_name}")
+
     table = TableNode(
         datasource_id=data.datasource_id,
         physical_name=data.physical_name,
+        slug=table_slug,
         semantic_name=data.semantic_name,
         description=data.description,
         ddl_context=data.ddl_context,
@@ -376,9 +405,11 @@ def create_table(data: TableCreate, db: Session = Depends(get_db)):
         col_embedding = embedding_service.generate_embedding(
             f"{col_data.get('semantic_name') or col_data['name']} {col_data.get('description', '')}"
         )
+        col_slug = col_data.get("slug") or slugify(f"{table_slug}-{col_data['name']}")
         col = ColumnNode(
             table_id=table.id,
             name=col_data["name"],
+            slug=col_slug,
             semantic_name=col_data.get("semantic_name"),
             data_type=col_data["data_type"],
             is_primary_key=col_data.get("is_primary_key", False),
@@ -395,8 +426,9 @@ def create_table(data: TableCreate, db: Session = Depends(get_db)):
     return {
         "id": str(table.id),
         "physical_name": table.physical_name,
+        "slug": table.slug,
         "semantic_name": table.semantic_name,
-        "columns": [{"id": str(c.id), "name": c.name, "data_type": c.data_type} for c in columns]
+        "columns": [{"id": str(c.id), "name": c.name, "slug": c.slug, "data_type": c.data_type} for c in columns]
     }
 
 
@@ -425,22 +457,24 @@ def get_table(table_id: UUID, db: Session = Depends(get_db)):
         "id": str(table.id),
         "datasource_id": str(table.datasource_id),
         "physical_name": table.physical_name,
+        "slug": table.slug,
         "semantic_name": table.semantic_name,
         "description": table.description,
         "ddl_context": table.ddl_context,
         "created_at": table.created_at.isoformat() if table.created_at else None,
         "context_rules": [
-            {"id": str(r.id), "column_id": str(r.column_id), "column_name": col_map.get(r.column_id), "rule_text": r.rule_text}
+            {"id": str(r.id), "column_id": str(r.column_id), "slug": r.slug, "column_name": col_map.get(r.column_id), "rule_text": r.rule_text}
             for r in rules
         ],
         "nominal_values": [
-            {"id": str(v.id), "column_id": str(v.column_id), "column_name": col_map.get(v.column_id), "raw": v.value_raw, "label": v.value_label}
+            {"id": str(v.id), "column_id": str(v.column_id), "slug": v.slug, "column_name": col_map.get(v.column_id), "raw": v.value_raw, "label": v.value_label}
             for v in values
         ],
         "columns": [
             {
                 "id": str(c.id),
                 "name": c.name,
+                "slug": c.slug,
                 "semantic_name": c.semantic_name,
                 "data_type": c.data_type,
                 "is_primary_key": c.is_primary_key,
@@ -564,6 +598,13 @@ def create_column(table_id: UUID, data: dict, db: Session = Depends(get_db)):
     text = f"{new_col.semantic_name or new_col.name} {new_col.description or ''} {new_col.context_note or ''}".strip()
     new_col.embedding = embedding_service.generate_embedding(text)
     
+    # Generate slug
+    # We need table slug. Since we don't have it easily loaded on object yet (flush needed?), fetch it.
+    # table is already fetched above.
+    # Accessing table.slug might fail if not loaded? table is from query.
+    new_col.slug = data.get("slug") or slugify(f"{table.slug}-{new_col.name}")
+
+    
     db.add(new_col)
     db.commit()
     db.refresh(new_col)
@@ -571,6 +612,11 @@ def create_column(table_id: UUID, data: dict, db: Session = Depends(get_db)):
     return {
         "id": str(new_col.id),
         "name": new_col.name,
+        "data_type": new_col.data_type,
+        "is_primary_key": new_col.is_primary_key,
+        "id": str(new_col.id),
+        "name": new_col.name,
+        "slug": new_col.slug,
         "data_type": new_col.data_type,
         "is_primary_key": new_col.is_primary_key,
         "semantic_name": new_col.semantic_name,
@@ -774,6 +820,7 @@ def list_metrics(datasource_id: Optional[UUID] = None, db: Session = Depends(get
         {
             "id": str(m.id),
             "name": m.name,
+            "slug": m.slug,
             "description": m.description,
             "calculation_sql": m.calculation_sql,
             "filter_condition": m.filter_condition,
@@ -813,8 +860,11 @@ def create_metric(data: MetricCreate, db: Session = Depends(get_db)):
     
     embedding = embedding_service.generate_embedding(f"{data.name} {data.description or ''}")
     
+    metric_slug = data.slug or slugify(data.name)
+
     metric = SemanticMetric(
         name=data.name,
+        slug=metric_slug,
         description=data.description,
         calculation_sql=data.sql_expression,
         filter_condition=data.filter_condition,
@@ -824,7 +874,7 @@ def create_metric(data: MetricCreate, db: Session = Depends(get_db)):
     db.add(metric)
     db.commit()
     db.refresh(metric)
-    return {"id": str(metric.id), "name": metric.name, "created": True}
+    return {"id": str(metric.id), "name": metric.name, "slug": metric.slug, "created": True}
 
 
 @router.put("/metrics/{metric_id}")
@@ -881,6 +931,7 @@ def list_synonyms(target_type: Optional[str] = None, db: Session = Depends(get_d
         {
             "id": str(s.id),
             "term": s.term,
+            "slug": s.slug,
             "target_type": s.target_type.value if hasattr(s.target_type, 'value') else str(s.target_type),
             "target_id": str(s.target_id)
         } for s in query.all()
@@ -900,14 +951,18 @@ def create_synonyms_bulk(data: SynonymBulkCreate, db: Session = Depends(get_db))
             continue
         
         embedding = embedding_service.generate_embedding(term)
+        # Unique slug for synonym
+        syn_slug = slugify(f"syn-{term}-{data.target_id}")
+
         syn = SemanticSynonym(
             term=term,
+            slug=syn_slug,
             target_type=SynonymTargetType(data.target_type),
             target_id=data.target_id
         )
         db.add(syn)
         db.flush()
-        created.append({"id": str(syn.id), "term": term, "existed": False})
+        created.append({"id": str(syn.id), "term": term, "slug": syn.slug, "existed": False})
     
     db.commit()
     return created
@@ -952,15 +1007,22 @@ def create_context_rule(data: ContextRuleCreate, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Column not found")
     
     embedding = embedding_service.generate_embedding(data.rule_text)
+    # Generate slug
+    # col is fetched above
+    rule_hash = str(hash(data.rule_text))[-8:]
+    rule_slug = data.slug or slugify(f"rule-{col.slug}-{rule_hash}")
+
     rule = ColumnContextRule(
         column_id=data.column_id,
+        slug=rule_slug,
         rule_text=data.rule_text,
         embedding=embedding
     )
     db.add(rule)
     db.commit()
+    db.commit()
     db.refresh(rule)
-    return {"id": str(rule.id), "rule_text": rule.rule_text, "created": True}
+    return {"id": str(rule.id), "rule_text": rule.rule_text, "slug": rule.slug, "created": True}
 
 
 @router.get("/columns/{column_id}/rules")
@@ -971,7 +1033,7 @@ def get_column_rules(column_id: UUID, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Column not found")
     
     rules = db.query(ColumnContextRule).filter(ColumnContextRule.column_id == column_id).all()
-    return [{"id": str(r.id), "rule_text": r.rule_text, "created_at": r.created_at.isoformat() if r.created_at else None} for r in rules]
+    return [{"id": str(r.id), "rule_text": r.rule_text, "slug": r.slug, "created_at": r.created_at.isoformat() if r.created_at else None} for r in rules]
 
 
 @router.delete("/context-rules/{rule_id}", status_code=204)
@@ -1011,7 +1073,7 @@ def get_column_values(column_id: UUID, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Column not found")
     
     values = db.query(LowCardinalityValue).filter(LowCardinalityValue.column_id == column_id).all()
-    return [{"id": str(v.id), "raw": v.value_raw, "label": v.value_label} for v in values]
+    return [{"id": str(v.id), "raw": v.value_raw, "label": v.value_label, "slug": v.slug} for v in values]
 
 
 @router.post("/columns/{column_id}/values/sync")
@@ -1050,8 +1112,12 @@ def add_column_value_manual(column_id: UUID, data: ValueManualCreate, db: Sessio
         return {"id": str(existing.id), "updated": True}
     
     embedding = embedding_service.generate_embedding(data.label)
+    # Generate slug
+    val_slug = data.slug or slugify(f"val-{col.slug}-{data.raw}")
+    
     value = LowCardinalityValue(
         column_id=column_id,
+        slug=val_slug,
         value_raw=data.raw,
         value_label=data.label,
         embedding=embedding
@@ -1060,7 +1126,7 @@ def add_column_value_manual(column_id: UUID, data: ValueManualCreate, db: Sessio
     db.commit()
     db.refresh(value)
     db.refresh(value)
-    return {"id": str(value.id), "created": True}
+    return {"id": str(value.id), "slug": value.slug, "created": True}
 
 
 @router.delete("/values/{value_id}", status_code=204)
@@ -1116,6 +1182,7 @@ def list_golden_sql(
             "id": str(g.id),
             "datasource_id": str(g.datasource_id),
             "prompt_text": g.prompt_text,
+            "slug": g.slug,
             "sql_query": g.sql_query,
             "complexity_score": g.complexity_score,
             "verified": g.verified,
@@ -1139,8 +1206,12 @@ def create_golden_sql(data: GoldenSQLCreate, db: Session = Depends(get_db)):
     
     embedding = embedding_service.generate_embedding(data.prompt_text)
     
+    # Generate slug
+    gsql_slug = data.slug or slugify(f"gsql-{ds.slug}-{str(hash(data.prompt_text))[-8:]}")
+
     golden = GoldenSQL(
         datasource_id=data.datasource_id,
+        slug=gsql_slug,
         prompt_text=data.prompt_text,
         sql_query=data.sql_query,
         complexity_score=data.complexity,
@@ -1214,8 +1285,13 @@ def import_golden_sql(data: GoldenSQLImport, db: Session = Depends(get_db)):
             continue
         
         embedding = embedding_service.generate_embedding(prompt)
+        
+        # Auto-gen slug for import
+        gsql_slug = slugify(f"gsql-{ds.slug}-{str(hash(prompt))[-8:]}")
+
         golden = GoldenSQL(
             datasource_id=data.datasource_id,
+            slug=gsql_slug,
             prompt_text=prompt,
             sql_query=sql,
             complexity_score=complexity,

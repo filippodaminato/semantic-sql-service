@@ -39,6 +39,12 @@ import { NominalValue, Column } from '../../../../core/models/admin.models';
               <mat-error *ngIf="form.get('column_id')?.hasError('required')">Column is required</mat-error>
           </mat-form-field>
 
+          <mat-form-field appearance="outline" class="w-full tech-input">
+              <mat-label>Slug</mat-label>
+              <input matInput formControlName="slug" placeholder="e.g. val-status-active">
+              <mat-error *ngIf="form.get('slug')?.hasError('required')">Required</mat-error>
+          </mat-form-field>
+
           <div class="flex gap-4">
             <mat-form-field appearance="outline" class="w-full tech-input">
                 <mat-label>Raw Value</mat-label>
@@ -77,6 +83,7 @@ export class NominalValuesDialogComponent {
     ) {
         this.form = this.fb.group({
             column_id: [data.columnId || '', Validators.required],
+            slug: ['', Validators.required],
             raw: ['', Validators.required],
             label: ['', Validators.required]
         });
@@ -87,6 +94,7 @@ export class NominalValuesDialogComponent {
 
         this.submitting.set(true);
         const payload = {
+            slug: this.form.value.slug,
             raw: this.form.value.raw,
             label: this.form.value.label
         };

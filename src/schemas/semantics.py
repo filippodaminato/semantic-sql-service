@@ -8,6 +8,7 @@ from datetime import datetime
 class MetricCreateDTO(BaseModel):
     """DTO for creating a semantic metric"""
     name: str = Field(..., min_length=1, max_length=255, description="Metric name")
+    slug: Optional[str] = Field(None, max_length=255, description="Unique slug")
     description: Optional[str] = Field(None, description="Business description")
     sql_expression: str = Field(..., min_length=1, description="SQL calculation expression")
     required_table_ids: List[UUID] = Field(default_factory=list, description="Required table UUIDs")
@@ -34,6 +35,7 @@ class MetricResponseDTO(BaseModel):
     """DTO for metric response"""
     id: UUID
     name: str
+    slug: str
     description: Optional[str]
     calculation_sql: str
     required_tables: Optional[List[str]]
@@ -72,6 +74,7 @@ class SynonymBulkDTO(BaseModel):
 class SynonymCreateDTO(BaseModel):
     """DTO for creating a single synonym"""
     term: str = Field(..., min_length=1)
+    slug: Optional[str] = Field(None, max_length=255)
     target_id: UUID = Field(..., description="Target entity UUID")
     target_type: str = Field(
         ...,
@@ -108,6 +111,7 @@ class SynonymResponseDTO(BaseModel):
     """DTO for synonym response"""
     id: UUID
     term: str
+    slug: str
     target_type: str
     target_id: UUID
     created_at: datetime

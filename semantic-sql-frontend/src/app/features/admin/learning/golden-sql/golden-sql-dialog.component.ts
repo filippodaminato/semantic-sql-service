@@ -37,6 +37,13 @@ import { GoldenSQL } from '../../../../core/models/admin.models';
                 <mat-error *ngIf="form.get('prompt_text')?.hasError('required')">Required</mat-error>
             </mat-form-field>
 
+            <!-- Slug -->
+            <mat-form-field appearance="outline" class="w-full tech-input">
+                <mat-label>Slug</mat-label>
+                <input matInput formControlName="slug" placeholder="e.g. gsql-revenue-region">
+                <mat-error *ngIf="form.get('slug')?.hasError('required')">Required</mat-error>
+            </mat-form-field>
+
             <!-- SQL -->
             <mat-form-field appearance="outline" class="w-full tech-input">
                 <mat-label>SQL Query</mat-label>
@@ -85,6 +92,7 @@ export class GoldenSqlDialogComponent {
 
         this.form = this.fb.group({
             prompt_text: [data.item?.prompt_text || '', [Validators.required]],
+            slug: [data.item?.slug || '', [Validators.required]],
             sql_query: [data.item?.sql_query || '', [Validators.required]],
             complexity: [data.item?.complexity_score || 1, [Validators.required, Validators.min(1), Validators.max(10)]],
             verified: [data.item?.verified ?? true]

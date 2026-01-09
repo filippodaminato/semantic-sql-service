@@ -40,6 +40,12 @@ import { ContextRule, Column } from '../../../../core/models/admin.models';
           </mat-form-field>
 
           <mat-form-field appearance="outline" class="w-full tech-input">
+              <mat-label>Slug</mat-label>
+              <input matInput formControlName="slug" placeholder="e.g. rule-status-pending">
+              <mat-error *ngIf="form.get('slug')?.hasError('required')">Required</mat-error>
+          </mat-form-field>
+
+          <mat-form-field appearance="outline" class="w-full tech-input">
               <mat-label>Rule Definition</mat-label>
               <textarea matInput formControlName="rule_text" rows="4" placeholder="e.g. Can only be NULL if status is 'PENDING'. Logic or constraint description."></textarea>
               <mat-error *ngIf="form.get('rule_text')?.hasError('required')">Rule text is required</mat-error>
@@ -69,6 +75,7 @@ export class ContextRulesDialogComponent {
     ) {
         this.form = this.fb.group({
             column_id: [data.columnId || '', Validators.required],
+            slug: ['', Validators.required],
             rule_text: ['', Validators.required]
         });
     }
@@ -79,6 +86,7 @@ export class ContextRulesDialogComponent {
         this.submitting.set(true);
         const payload = {
             column_id: this.form.value.column_id,
+            slug: this.form.value.slug,
             rule_text: this.form.value.rule_text
         };
 

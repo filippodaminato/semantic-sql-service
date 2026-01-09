@@ -52,6 +52,12 @@ import { Table } from '../../../../core/models/admin.models';
             <mat-hint *ngIf="!data.synonym">Enter multiple terms separated by commas</mat-hint>
         </mat-form-field>
 
+        <mat-form-field appearance="outline" class="tech-input" *ngIf="data.synonym">
+            <mat-label>Slug</mat-label>
+            <input matInput formControlName="slug" placeholder="e.g. syn-clients-users">
+            <mat-error *ngIf="form.get('slug')?.hasError('required')">Slug is required</mat-error>
+        </mat-form-field>
+
       </div>
     </mat-dialog-content>
     
@@ -76,7 +82,8 @@ export class CreateSynonymDialogComponent {
         this.form = this.fb.group({
             target_type: [{ value: data.synonym?.target_type || 'TABLE', disabled: !!data.synonym }, Validators.required],
             target_id: [{ value: data.synonym?.target_id || '', disabled: !!data.synonym }, Validators.required],
-            terms_text: [data.synonym?.term || '', Validators.required]
+            terms_text: [data.synonym?.term || '', Validators.required],
+            slug: [data.synonym?.slug || '', Validators.required]
         });
 
         this.updateEntities();

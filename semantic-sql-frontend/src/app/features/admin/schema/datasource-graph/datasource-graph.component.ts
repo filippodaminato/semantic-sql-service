@@ -55,6 +55,14 @@ import cytoscape from 'cytoscape';
                          </mat-form-field>
                     </div>
 
+                    <div class="flex flex-col gap-1">
+                        <label class="text-[10px] uppercase text-gray-500 font-bold ml-1">Slug</label>
+                        <mat-form-field appearance="outline" class="w-full tech-input">
+                            <input matInput [(ngModel)]="datasource.slug" placeholder="e.g. sales-dwh-prod" required>
+                             <mat-icon matSuffix class="text-gray-600 scale-75">link</mat-icon>
+                        </mat-form-field>
+                    </div>
+
                     <div class="col-span-2 flex flex-col gap-1">
                         <label class="text-[10px] uppercase text-gray-500 font-bold ml-1">Context Signature / System Prompt</label>
                          <mat-form-field appearance="outline" class="w-full tech-input">
@@ -212,6 +220,7 @@ export class DatasourceGraphComponent implements OnInit, AfterViewInit, OnChange
         this.saving.set(true);
         const updateData = {
             name: this.datasource.name,
+            slug: this.datasource.slug,
             description: this.datasource.description,
             context_signature: this.datasource.context_signature
         };

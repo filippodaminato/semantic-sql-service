@@ -11,6 +11,7 @@ class ColumnCreateDTO(BaseModel):
     name: str = Field(..., min_length=1, max_length=255, description="Physical column name")
     data_type: str = Field(..., min_length=1, max_length=100, description="SQL data type")
     is_primary_key: bool = Field(default=False, description="Whether this is a primary key")
+    slug: Optional[str] = Field(None, max_length=255, description="Unique slug")
     semantic_name: Optional[str] = Field(None, max_length=255, description="Semantic name for the column")
     description: Optional[str] = Field(None, description="Column description")
     context_note: Optional[str] = Field(None, description="Business context note")
@@ -31,6 +32,7 @@ class ColumnResponseDTO(BaseModel):
     id: UUID
     table_id: UUID
     name: str
+    slug: str
     semantic_name: Optional[str]
     data_type: str
     is_primary_key: bool
@@ -47,6 +49,7 @@ class TableCreateDTO(BaseModel):
     """DTO for deep creating a table with columns"""
     datasource_id: UUID = Field(..., description="Datasource UUID")
     physical_name: str = Field(..., min_length=1, max_length=255, description="Physical table name")
+    slug: Optional[str] = Field(None, max_length=255, description="Unique slug")
     semantic_name: str = Field(..., min_length=1, max_length=255, description="Semantic table name")
     description: Optional[str] = Field(None, description="Table description")
     ddl_context: Optional[str] = Field(None, description="DDL CREATE TABLE statement")
@@ -66,6 +69,7 @@ class TableResponseDTO(BaseModel):
     id: UUID
     datasource_id: UUID
     physical_name: str
+    slug: str
     semantic_name: str
     description: Optional[str]
     ddl_context: Optional[str]
@@ -142,6 +146,7 @@ class TableFullResponseDTO(BaseModel):
     id: UUID
     datasource_id: UUID
     physical_name: str
+    slug: str
     semantic_name: str
     description: Optional[str]
     ddl_context: Optional[str]

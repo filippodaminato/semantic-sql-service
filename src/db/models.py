@@ -1,4 +1,5 @@
 """SQLAlchemy database models"""
+from core.searchable_mixin import SearchableMixin
 from sqlalchemy import (
     Column, String, Text, Boolean, Integer, ForeignKey,
     JSON, DateTime, Enum as SQLEnum
@@ -10,9 +11,7 @@ from pgvector.sqlalchemy import Vector
 import uuid
 from enum import Enum as PyEnum
 from ..core.database import Base
-
-
-
+from ..core.searchable_mixin import SearchableMixin
 
 
 # Enums
@@ -41,7 +40,7 @@ class SynonymTargetType(PyEnum):
 
 
 # Core Registry Models
-class Datasource(Base):
+class Datasource(Base,SearchableMixin):
     """
     Physical datasource definition.
     The physical query perimeter.
@@ -73,6 +72,7 @@ class TableNode(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     datasource_id = Column(UUID(as_uuid=True), ForeignKey("datasources.id"), nullable=False)
     physical_name = Column(String(255), nullable=False, doc="Nome reale nel DB (t_orders_v2)")
+    slug = Column(String(255), nullable=False, unique=True, index=True)
     semantic_name = Column(String(255), nullable=False, doc="Nome 'pulito' per l'LLM (Orders Table)")
     description = Column(Text, nullable=True, doc="Metadato curato descrittivo. Driver primario per il retrieval vettoriale macro")
     ddl_context = Column(Text, nullable=True, doc="Lo statement CREATE TABLE minimizzato")
@@ -99,6 +99,7 @@ class ColumnNode(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     table_id = Column(UUID(as_uuid=True), ForeignKey("table_nodes.id"), nullable=False)
     name = Column(String(255), nullable=False, doc="Nome fisico (usr_id)")
+    slug = Column(String(255), nullable=False, unique=True, index=True)
     semantic_name = Column(String(255), nullable=True)
     data_type = Column(String(100), nullable=False, doc="Tipo nativo (VARCHAR, INT)")
     is_primary_key = Column(Boolean, default=False, nullable=False, doc="Critico per identificare le entità uniche")
@@ -160,6 +161,7 @@ class SemanticMetric(Base):
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name = Column(String(255), nullable=False, unique=True, doc="Es. 'ARR - Annual Recurring Revenue'")
+    slug = Column(String(255), nullable=False, unique=True, index=True)
     description = Column(Text, nullable=True, doc="Spiegazione di business per il retrieval")
     calculation_sql = Column(Text, nullable=False, doc="Lo snippet SQL puro")
     required_tables = Column(JSON, nullable=True, doc="Lista delle tabelle fisiche necessarie")
@@ -179,7 +181,9 @@ class SemanticSynonym(Base):
     __tablename__ = "semantic_synonyms"
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    #datasource_id
     term = Column(String(255), nullable=False, doc="Il termine usato dagli umani")
+    slug = Column(String(255), nullable=False, unique=True, index=True)
     target_type = Column(SQLEnum(SynonymTargetType), nullable=False, doc="TABLE, COLUMN, METRIC, VALUE")
     target_id = Column(UUID(as_uuid=True), nullable=False, doc="Riferimento all'entità fisica o logica mappata")
     
@@ -198,6 +202,7 @@ class ColumnContextRule(Base):
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     column_id = Column(UUID(as_uuid=True), ForeignKey("column_nodes.id"), nullable=False)
+    slug = Column(String(255), nullable=False, unique=True, index=True)
     rule_text = Column(Text, nullable=False, doc="Istruzione esplicita")
     embedding = Column(Vector(1536), nullable=True, doc="Permette di recuperare la regola solo quando pertinente")
     embedding_hash = Column(String(64), nullable=True, doc="Hash of content used for embedding")
@@ -219,6 +224,7 @@ class LowCardinalityValue(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     column_id = Column(UUID(as_uuid=True), ForeignKey("column_nodes.id"), nullable=False)
     value_raw = Column(String(255), nullable=False, doc="Il dato reale nel DB")
+    slug = Column(String(255), nullable=False, unique=True, index=True)
     value_label = Column(String(255), nullable=False, doc="Etichetta semantica/estesa")
     embedding = Column(Vector(1536), nullable=True, doc="Vettore dell'etichetta")
     embedding_hash = Column(String(64), nullable=True, doc="Hash of content used for embedding")
@@ -243,6 +249,7 @@ class GoldenSQL(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     datasource_id = Column(UUID(as_uuid=True), ForeignKey("datasources.id"), nullable=False)
     prompt_text = Column(Text, nullable=False, doc="Domanda in linguaggio naturale")
+    slug = Column(String(255), nullable=False, unique=True, index=True)
     sql_query = Column(Text, nullable=False, doc="Query SQL validata 'Gold Standard'")
     complexity_score = Column(Integer, nullable=False, default=1, doc="1-5. Usato per selezionare esempi di difficoltà analoga")
     verified = Column(Boolean, default=True, nullable=False)

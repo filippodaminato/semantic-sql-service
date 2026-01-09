@@ -42,6 +42,11 @@ const COMMON_SQL_TYPES = [
         </mat-form-field>
 
         <mat-form-field appearance="outline" class="w-full tech-input">
+          <mat-label>Slug</mat-label>
+          <input matInput [(ngModel)]="data.slug" placeholder="e.g. user-id">
+        </mat-form-field>
+
+        <mat-form-field appearance="outline" class="w-full tech-input">
           <mat-label>Data Type</mat-label>
           <mat-select [(ngModel)]="data.data_type">
               <mat-option *ngFor="let type of sqlTypes" [value]="type">{{type}}</mat-option>
@@ -55,12 +60,12 @@ const COMMON_SQL_TYPES = [
     </mat-dialog-content>
     <mat-dialog-actions align="end">
       <button mat-button mat-dialog-close class="text-gray-400">CANCEL</button>
-      <button mat-flat-button color="primary" [mat-dialog-close]="data" [disabled]="!data.name">ADD</button>
+      <button mat-flat-button color="primary" [mat-dialog-close]="data" [disabled]="!data.name || !data.slug">ADD</button>
     </mat-dialog-actions>
   `
 })
 export class AddColumnDialogComponent {
-  data = { name: '', data_type: 'VARCHAR', is_primary_key: false };
+  data = { name: '', slug: '', data_type: 'VARCHAR', is_primary_key: false };
   sqlTypes = COMMON_SQL_TYPES;
 }
 
@@ -109,6 +114,14 @@ export class AddColumnDialogComponent {
                           <mat-form-field appearance="outline" class="w-full tech-input dense-input">
                               <input matInput [(ngModel)]="table.physical_name" placeholder="e.g. t_users">
                               <mat-icon matSuffix class="text-gray-600 text-sm">storage</mat-icon>
+                          </mat-form-field>
+                      </div>
+
+                      <div class="flex flex-col gap-1">
+                          <label class="text-[10px] uppercase text-gray-500 font-bold ml-1">Slug</label>
+                          <mat-form-field appearance="outline" class="w-full tech-input dense-input">
+                              <input matInput [(ngModel)]="table.slug" placeholder="e.g. t-users">
+                              <mat-icon matSuffix class="text-gray-600 text-sm">link</mat-icon>
                           </mat-form-field>
                       </div>
 
@@ -178,6 +191,15 @@ export class AddColumnDialogComponent {
                         <td mat-cell *matCellDef="let col" class="text-gray-500 font-mono text-xs">
                             <input class="bg-transparent border-none text-gray-500 font-mono w-full focus:ring-1 focus:ring-blue-500 rounded px-1 text-xs" 
                                 [(ngModel)]="col.name" (blur)="updateColumn(col)"> 
+                        </td>
+                    </ng-container>
+
+                    <!-- Slug Column -->
+                    <ng-container matColumnDef="slug">
+                        <th mat-header-cell *matHeaderCellDef> Slug </th>
+                        <td mat-cell *matCellDef="let col" class="text-gray-500 font-mono text-xs">
+                           <input class="bg-transparent border-none text-gray-500 font-mono w-full focus:ring-1 focus:ring-blue-500 rounded px-1 text-xs" 
+                                [(ngModel)]="col.slug" (blur)="updateColumn(col)" placeholder="Required" required>  
                         </td>
                     </ng-container>
 
@@ -372,7 +394,7 @@ export class TableDetailComponent implements OnChanges {
   @Input() table: Table | null = null;
   @Input() refreshCallback: (() => void) | null = null;
 
-  displayedColumns = ['semantic_name', 'name', 'data_type', 'is_primary_key', 'description', 'context_note', 'actions'];
+  displayedColumns = ['semantic_name', 'name', 'slug', 'data_type', 'is_primary_key', 'description', 'context_note', 'actions'];
   contextRulesColumns = ['column_name', 'rule_text', 'actions'];
   nominalValuesColumns = ['column_name', 'raw', 'label', 'actions'];
   sqlTypes = COMMON_SQL_TYPES;
@@ -401,6 +423,7 @@ export class TableDetailComponent implements OnChanges {
 
     this.adminService.updateTable(this.table.id, {
       physical_name: this.table.physical_name,
+      slug: this.table.slug, // Added slug update
       semantic_name: this.table.semantic_name,
       description: this.table.description,
       ddl_context: this.table.ddl_context
@@ -420,6 +443,7 @@ export class TableDetailComponent implements OnChanges {
   updateColumn(col: Column) {
     this.adminService.updateColumn(col.id, {
       name: col.name, // Added name update
+      slug: col.slug, // Added slug update
       semantic_name: col.semantic_name,
       description: col.description,
       context_note: col.context_note,

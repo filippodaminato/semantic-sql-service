@@ -142,7 +142,7 @@ class TestTablesCRUD:
         })
         table_id = create_resp.json()["id"]
         
-        response = client.get(f"/api/v1/admin/tables/{table_id}")
+        response = client.get(f"/api/v1/admin/tables/{table_id}/full")
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
         assert data["physical_name"] == "t_get_test"

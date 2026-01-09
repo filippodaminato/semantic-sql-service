@@ -31,6 +31,12 @@ import { Table } from '../../../../core/models/admin.models';
         </mat-form-field>
 
         <mat-form-field appearance="outline" class="tech-input">
+            <mat-label>Slug</mat-label>
+            <input matInput formControlName="slug" placeholder="e.g. monthly-recurring-revenue">
+            <mat-error *ngIf="form.get('slug')?.hasError('required')">Slug is required</mat-error>
+        </mat-form-field>
+
+        <mat-form-field appearance="outline" class="tech-input">
             <mat-label>Description</mat-label>
             <textarea matInput formControlName="description" rows="2" placeholder="Explain what this metric calculates"></textarea>
         </mat-form-field>
@@ -86,6 +92,7 @@ export class CreateMetricDialogComponent {
     ) {
         this.form = this.fb.group({
             name: [data.metric?.name || '', Validators.required],
+            slug: [data.metric?.slug || '', Validators.required],
             description: [data.metric?.description || ''],
             sql_expression: [data.metric?.calculation_sql || '', Validators.required],
             filter_condition: [data.metric?.filter_condition || ''],

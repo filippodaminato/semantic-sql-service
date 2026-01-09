@@ -7,8 +7,10 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatMenuModule } from '@angular/material/menu';
 import { MatCheckboxModule } from '@angular/material/checkbox';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
+import { MatSnackBar } from '@angular/material/snack-bar';
 import { AdminService } from '../../../core/services/admin.service';
 import { Datasource } from '../../../core/models/admin.models';
+import { CreateDatasourceDialogComponent } from './create-datasource-dialog.component';
 
 @Component({
     selector: 'app-datasources-list',
@@ -35,7 +37,8 @@ export class DatasourcesListComponent implements OnInit {
 
     constructor(
         private adminService: AdminService,
-        private dialog: MatDialog
+        private dialog: MatDialog,
+        private snackBar: MatSnackBar
     ) { }
 
     ngOnInit() {
@@ -49,14 +52,36 @@ export class DatasourcesListComponent implements OnInit {
     }
 
     openCreateDialog() {
-        // TODO: Implement create dialog
-        console.log('Open create dialog');
+        const dialogRef = this.dialog.open(CreateDatasourceDialogComponent, {
+            width: '600px',
+            panelClass: 'border-gray-800'
+        });
+
+        dialogRef.afterClosed().subscribe(result => {
+            if (result) {
+                this.adminService.createDatasource(result).subscribe({
+                    next: (newDs) => {
+                        this.snackBar.open('Datasource configured successfully', 'Dismiss', { duration: 3000 });
+                        this.loadDatasources();
+                    },
+                    error: (err) => {
+                        console.error('Error creating datasource', err);
+                        this.snackBar.open('Error creating datasource', 'Dismiss', { duration: 3000 });
+                    }
+                });
+            }
+        });
     }
 
     refreshIndex(ds: Datasource) {
-        this.adminService.refreshDatasourceIndex(ds.id).subscribe(res => {
-            console.log('Index refreshed', res);
-            // TODO: Show toast
+        this.adminService.refreshDatasourceIndex(ds.id).subscribe({
+            next: (res) => {
+                const count = res.updated_count || 0;
+                this.snackBar.open(`Index refreshed: ${count} entities updated`, 'Dismiss', { duration: 3000 });
+            },
+            error: (err) => {
+                this.snackBar.open('Error refreshing index', 'Dismiss', { duration: 3000 });
+            }
         });
     }
 
@@ -64,6 +89,7 @@ export class DatasourcesListComponent implements OnInit {
         if (confirm(`Are you sure you want to delete ${ds.name}?`)) {
             this.adminService.deleteDatasource(ds.id).subscribe(() => {
                 this.loadDatasources();
+                this.snackBar.open('Datasource deleted', 'Dismiss', { duration: 3000 });
             });
         }
     }

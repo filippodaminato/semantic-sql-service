@@ -1,0 +1,247 @@
+SEMANTIC SQL ENGINE - API DOCUMENTATION
+========================================
+
+This document lists all developed API endpoints for the Semantic SQL Service.
+
+BASE URL: http://localhost:8000
+PREFIXES:
+- Retrieval API: /api/v1/retrieval (For Agents/Consumers)
+- Admin API:     /api/v1/admin     (For Management UI/Control Plane)
+
+
+1. RETRIEVAL API (Agentic RAG)
+---------------------------------------
+Designed to be consumed by AI Agents for autonomous SQL generation.
+
+[POST] /api/v1/retrieval/search
+  Description: Unified semantic search across Datasources, Tables, Columns, and Metrics.
+  Payload (SearchRequest):
+    {
+      "query": "string (optional, natural language query)",
+      "filters": {
+        "entity_types": ["DATASOURCE", "TABLE", "COLUMN", "METRIC"],
+        "datasource_slug": "string (optional)",
+        "parent_id": "UUID (optional, for drill-down)"
+      },
+      "limit": "integer (default 20)"
+    }
+
+[POST] /api/v1/retrieval/graph/expand
+  Description: Resolves the optimal JOIN path between sparse entities (e.g. Products and Regions).
+  Payload (GraphRequest):
+    {
+      "datasource_slug": "string (required)",
+      "anchor_entities": ["string", "string"] (List of table names or UUIDs)
+    }
+
+[POST] /api/v1/retrieval/values/validate
+  Description: Validates and corrects categorical values to prevent hallucinations (e.g. "Lombardia" -> "LOM").
+  Payload (ValueValidationRequest):
+    {
+      "datasource_slug": "string (required)",
+      "target": {
+        "table": "string",
+        "column": "string"
+      },
+      "proposed_values": ["string", "string"]
+    }
+
+[POST] /api/v1/retrieval/schema/inspect
+  Description: Returns detailed technical metadata (DDL, Types) for specific tables.
+  Payload (InspectRequest):
+    {
+      "datasource_slug": "string (required)",
+      "table_names": ["string", "string"],
+      "include_samples": "boolean (default false)"
+    }
+
+[POST] /api/v1/retrieval/golden-sql/search
+  Description: Retrieves similar verified SQL examples for few-shot learning.
+  Payload (GoldenSqlSearchRequest):
+    {
+      "query": "string (required)",
+      "datasource_slug": "string (required)",
+      "limit": "integer (default 3)"
+    }
+
+[POST] /api/v1/retrieval/concepts/explain
+  Description: Explains business metrics and synonyms (Domain Dictionary).
+  Payload (ConceptExplainRequest):
+    {
+      "concepts": ["string", "string"],
+      "datasource_slug": "string (optional)"
+    }
+
+
+2. ADMIN API (Control Plane)
+---------------------------------------
+Used by the Frontend/Admin Panel to manage the Semantic Graph.
+
+A. DATASOURCES
+[GET] /api/v1/admin/datasources
+  Description: List all datasources.
+
+[GET] /api/v1/admin/datasources/{id}
+  Description: Get details of a datasource.
+
+[POST] /api/v1/admin/datasources
+  Description: Create a new datasource.
+  Payload (DatasourceCreate):
+    {
+      "name": "string (required)",
+      "slug": "string (optional)",
+      "engine": "postgres",
+      "connection_string": "string (optional)",
+      "description": "string (optional)",
+      "context_signature": "string (optional)"
+    }
+
+[PUT] /api/v1/admin/datasources/{id}
+  Description: Update a datasource.
+  Payload (DatasourceUpdate):
+    {
+      "name": "string",
+      "description": "string",
+      "context_signature": "string",
+      "connection_string": "string"
+    }
+
+[DELETE] /api/v1/admin/datasources/{id}
+  Description: Delete a datasource and all its metadata.
+
+[POST] /api/v1/admin/datasources/{id}/refresh-index
+  Description: Force re-calculation of vector embeddings.
+
+
+B. TABLES & COLUMNS
+[GET] /api/v1/admin/datasources/{id}/tables
+  Description: List tables in a datasource.
+
+[POST] /api/v1/admin/tables
+  Description: Create or register a table.
+  Payload (TableCreate):
+    {
+      "datasource_id": "UUID",
+      "physical_name": "string",
+      "semantic_name": "string",
+      "description": "string",
+      "ddl_context": "string (optional)"
+    }
+
+[GET] /api/v1/admin/tables/{id}/full
+  Description: Get full table details including columns and relationships.
+
+[PUT] /api/v1/admin/tables/{id}
+  Description: Update table metadata.
+  Payload: {"semantic_name": "...", "description": "...", "ddl_context": "..."}
+
+[PUT] /api/v1/admin/columns/{id}
+  Description: Update column metadata.
+  Payload (ColumnUpdate):
+    {
+      "semantic_name": "string",
+      "description": "string",
+      "context_note": "string",
+      "is_primary_key": "boolean",
+      "data_type": "string"
+    }
+
+
+C. METRICS (Semantic Layer)
+[GET] /api/v1/admin/metrics
+  Description: List all defined business metrics.
+
+[POST] /api/v1/admin/metrics
+  Description: Create a new metric.
+  Payload (MetricCreate):
+    {
+      "name": "string",
+      "sql_expression": "string (SQL fragment)",
+      "description": "string",
+      "required_table_ids": ["UUID"]
+    }
+
+[PUT] /api/v1/admin/metrics/{id}
+  Description: Update a metric.
+
+[DELETE] /api/v1/admin/metrics/{id}
+  Description: Delete a metric.
+
+[POST] /api/v1/admin/metrics/{id}/validate
+  Description: Dry-run validate the metric SQL against the database.
+
+
+D. SYNONYMS
+[GET] /api/v1/admin/synonyms
+  Description: List all synonyms.
+
+[POST] /api/v1/admin/synonyms/bulk
+  Description: Create multiple synonyms for an entity.
+  Payload (SynonymBulkCreate):
+    {
+      "target_id": "UUID",
+      "target_type": "TABLE | COLUMN | METRIC",
+      "terms": ["string", "string"]
+    }
+
+[DELETE] /api/v1/admin/synonyms/{id}
+  Description: Delete a synonym.
+
+
+E. CONTEXT & KNOWLEDGE
+[POST] /api/v1/admin/context-rules
+  Description: Add a context rule to a column.
+  Payload (ContextRuleCreate):
+    {
+      "column_id": "UUID",
+      "rule_text": "string"
+    }
+
+[PUT] /api/v1/admin/context-rules/{id}
+  Description: Update context rule text.
+  Payload: {"rule_text": "string"}
+
+[DELETE] /api/v1/admin/context-rules/{id}
+  Description: Delete a context rule.
+
+[GET] /api/v1/admin/columns/{id}/values
+  Description: Get mapped nominal values for a column.
+
+[POST] /api/v1/admin/columns/{id}/values/manual
+  Description: Manually map a value label.
+  Payload (ValueManualCreate):
+    {
+      "raw": "string (DB value)",
+      "label": "string (Human readable)"
+    }
+
+[PUT] /api/v1/admin/values/{id}
+  Description: Update a value mapping.
+  Payload: {"raw": "string", "label": "string"}
+
+
+F. GOLDEN SQL (Learning)
+[GET] /api/v1/admin/golden-sql
+  Description: List Golden SQL examples.
+
+[POST] /api/v1/admin/golden-sql
+  Description: Add a new Golden SQL example.
+  Payload (GoldenSQLCreate):
+    {
+      "datasource_id": "UUID",
+      "prompt_text": "string",
+      "sql_query": "string",
+      "complexity": "integer (1-5)",
+      "verified": "boolean"
+    }
+
+[PUT] /api/v1/admin/golden-sql/{id}
+  Description: Update a Golden SQL example.
+
+[DELETE] /api/v1/admin/golden-sql/{id}
+  Description: Delete a Golden SQL example.
+
+
+G. GRAPH VISUALIZATION
+[GET] /api/v1/admin/graph/visualize
+  Description: Returns graph nodes and edges for visualization tools.
