@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import and_
 from typing import List
 from uuid import UUID
+import re
 
 from ..core.database import get_db
 from ..db.models import (
@@ -20,6 +21,12 @@ from ..schemas.datasource import (
 )
 from ..services.embedding_service import embedding_service
 from ..services.sql_validator import sql_validator
+from ..core.logging import get_logger
+
+logger = get_logger("ontology")
+
+def slugify(text: str) -> str:
+    return re.sub(r'[^a-z0-9]+', '-', text.lower()).strip('-')
 
 router = APIRouter(prefix="/api/v1/ontology", tags=["Physical Ontology"])
 
@@ -76,6 +83,7 @@ def create_datasource(
         db.add(datasource)
         db.commit()
         db.refresh(datasource)
+        logger.info(f"Created datasource: {datasource.name} (ID: {datasource.id}, Slug: {datasource.slug})")
         return DatasourceResponseDTO.model_validate(datasource)
     except Exception as e:
         db.rollback()
@@ -151,6 +159,7 @@ def update_datasource(
     try:
         db.commit()
         db.refresh(datasource)
+        logger.info(f"Updated datasource: {datasource.name} (ID: {datasource.id})")
         return DatasourceResponseDTO.model_validate(datasource)
     except Exception as e:
         db.rollback()
@@ -176,6 +185,7 @@ def delete_datasource(
     try:
         db.delete(datasource)
         db.commit()
+        logger.info(f"Deleted datasource: {datasource.name} (ID: {datasource_id})")
     except Exception as e:
         db.rollback()
         raise HTTPException(
@@ -246,6 +256,7 @@ def create_table_deep(
             semantic_name=table_data.semantic_name,
             description=table_data.description,
             ddl_context=table_data.ddl_context,
+            slug=table_data.slug or slugify(f"{datasource.slug}-{table_data.physical_name}"),
             embedding=table_embedding
         )
         db.add(table)
@@ -273,6 +284,7 @@ def create_table_deep(
                 is_primary_key=col_data.is_primary_key,
                 description=col_data.description,
                 context_note=col_data.context_note,
+                slug=col_data.slug or slugify(f"{table.slug}-{col_data.name}"),
                 embedding=col_embedding
             )
             db.add(column)
@@ -284,6 +296,7 @@ def create_table_deep(
         # Return with columns
         response = TableResponseDTO.model_validate(table)
         response.columns = [ColumnResponseDTO.model_validate(col) for col in columns]
+        logger.info(f"Created table (deep): {table.physical_name} (ID: {table.id}) with {len(columns)} columns")
         return response
         
     except Exception as e:
@@ -423,6 +436,7 @@ def update_table(
         response = TableResponseDTO.model_validate(table)
         columns = db.query(ColumnNode).filter(ColumnNode.table_id == table.id).all()
         response.columns = [ColumnResponseDTO.model_validate(col) for col in columns]
+        logger.info(f"Updated table: {table.physical_name} (ID: {table.id})")
         return response
     except Exception as e:
         db.rollback()
@@ -448,6 +462,7 @@ def delete_table(
     try:
         db.delete(table)
         db.commit()
+        logger.info(f"Deleted table: {table.physical_name} (ID: {table_id})")
     except Exception as e:
         db.rollback()
         raise HTTPException(
@@ -503,6 +518,7 @@ def update_column(
     try:
         db.commit()
         db.refresh(column)
+        logger.info(f"Updated column: {column.name} (ID: {column.id})")
         return ColumnResponseDTO.model_validate(column)
     except Exception as e:
         db.rollback()
@@ -543,6 +559,7 @@ def delete_column(
     try:
         db.delete(column)
         db.commit()
+        logger.info(f"Deleted column: {column.name} (ID: {column_id})")
     except Exception as e:
         db.rollback()
         raise HTTPException(
@@ -610,6 +627,7 @@ def create_relationship(
         db.add(relationship)
         db.commit()
         db.refresh(relationship)
+        logger.info(f"Created relationship: {relationship.relationship_type} (ID: {relationship.id})")
         return RelationshipResponseDTO.model_validate(relationship)
     except Exception as e:
         db.rollback()
@@ -667,6 +685,7 @@ def update_relationship(
     try:
         db.commit()
         db.refresh(relationship)
+        logger.info(f"Updated relationship: {relationship.id}")
         return RelationshipResponseDTO.model_validate(relationship)
     except Exception as e:
         db.rollback()
@@ -692,6 +711,7 @@ def delete_relationship(
     try:
         db.delete(relationship)
         db.commit()
+        logger.info(f"Deleted relationship: {relationship_id}")
     except Exception as e:
         db.rollback()
         raise HTTPException(

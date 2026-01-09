@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List
 from uuid import UUID
+import re
 
 from ..core.database import get_db
 from ..db.models import SemanticMetric, SemanticSynonym, SynonymTargetType, TableNode
@@ -12,6 +13,12 @@ from ..schemas.semantics import (
 )
 from ..services.embedding_service import embedding_service
 from ..services.sql_validator import sql_validator
+from ..core.logging import get_logger
+
+logger = get_logger("semantics")
+
+def slugify(text: str) -> str:
+    return re.sub(r'[^a-z0-9]+', '-', text.lower()).strip('-')
 
 router = APIRouter(prefix="/api/v1/semantics", tags=["Business Semantics"])
 
@@ -72,11 +79,13 @@ def create_metric(
     
     # Create metric
     metric = SemanticMetric(
+        datasource_id=metric_data.datasource_id,
         name=metric_data.name,
         description=metric_data.description,
         calculation_sql=metric_data.sql_expression,
         required_tables=[str(tid) for tid in metric_data.required_table_ids] if metric_data.required_table_ids else None,
         filter_condition=metric_data.filter_condition,
+        slug=metric_data.slug or slugify(metric_data.name),
         embedding=embedding
     )
     
@@ -84,6 +93,7 @@ def create_metric(
         db.add(metric)
         db.commit()
         db.refresh(metric)
+        logger.info(f"Created metric: {metric.name} (ID: {metric.id})")
         return MetricResponseDTO.model_validate(metric)
     except Exception as e:
         db.rollback()
@@ -134,6 +144,9 @@ def update_metric(
         metric.name = metric_data.name
         update_embedding = True
     
+    if metric_data.datasource_id is not None:
+        metric.datasource_id = metric_data.datasource_id
+    
     if metric_data.description is not None:
         metric.description = metric_data.description
         update_embedding = True
@@ -173,6 +186,7 @@ def update_metric(
     try:
         db.commit()
         db.refresh(metric)
+        logger.info(f"Updated metric: {metric.name} (ID: {metric.id})")
         return MetricResponseDTO.model_validate(metric)
     except Exception as e:
         db.rollback()
@@ -198,6 +212,7 @@ def delete_metric(
     try:
         db.delete(metric)
         db.commit()
+        logger.info(f"Deleted metric: {metric.name} (ID: {metric_id})")
     except Exception as e:
         db.rollback()
         raise HTTPException(
@@ -244,7 +259,8 @@ def create_synonyms_bulk(
         synonym = SemanticSynonym(
             term=term,
             target_type=SynonymTargetType(synonym_data.target_type),
-            target_id=synonym_data.target_id
+            target_id=synonym_data.target_id,
+            slug=slugify(term)
         )
         synonyms.append(synonym)
         db.add(synonym)
@@ -256,6 +272,7 @@ def create_synonyms_bulk(
             db.refresh(synonym)
             created_synonyms.append(SynonymResponseDTO.model_validate(synonym))
         
+        logger.info(f"Created {len(synonyms)} synonyms (bulk)")
         return created_synonyms
     except Exception as e:
         db.rollback()
@@ -299,13 +316,15 @@ def create_synonym(
     synonym = SemanticSynonym(
         term=synonym_data.term,
         target_type=SynonymTargetType(synonym_data.target_type),
-        target_id=synonym_data.target_id
+        target_id=synonym_data.target_id,
+        slug=synonym_data.slug or slugify(synonym_data.term)
     )
     
     try:
         db.add(synonym)
         db.commit()
         db.refresh(synonym)
+        logger.info(f"Created synonym: {synonym.term} -> {synonym.target_id}")
         return SynonymResponseDTO.model_validate(synonym)
     except Exception as e:
         db.rollback()
@@ -339,6 +358,7 @@ def update_synonym(
     try:
         db.commit()
         db.refresh(synonym)
+        logger.info(f"Updated synonym: {synonym.id}")
         return SynonymResponseDTO.model_validate(synonym)
     except Exception as e:
         db.rollback()
@@ -364,6 +384,7 @@ def delete_synonym(
     try:
         db.delete(synonym)
         db.commit()
+        logger.info(f"Deleted synonym: {synonym.term} (ID: {synonym_id})")
     except Exception as e:
         db.rollback()
         raise HTTPException(

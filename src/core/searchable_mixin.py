@@ -7,7 +7,8 @@ from sqlalchemy.dialects.postgresql import TSVECTOR
 from pgvector.sqlalchemy import Vector
 
 # Simulazione o import reale del tuo generator
-from .utils.embedding import generate_embedding 
+# Import embedding service
+from ..services.embedding_service import embedding_service 
 
 # Tipi di configurazione supportati
 SearchMode = Literal["hybrid", "fts_only", "vector_only"]
@@ -24,10 +25,10 @@ class SearchableMixin:
     _search_mode: SearchMode = "hybrid" 
 
     # --- Colonne (Nullable: usate solo se la modalità lo richiede) ---
-    embedding: Mapped[Optional[list]] = mapped_column(Vector(1536), nullable=True)
+    embedding = Column(Vector(1536), nullable=True)
     
     # Hash per evitare chiamate API inutili (es. SHA256 hex)
-    embedding_hash: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    embedding_hash = Column(String(64), nullable=True)
 
     # Nota: 'search_vector' (TSVECTOR) deve essere definito nel modello figlio 
     # tramite Computed(), poiché dipende dalle colonne specifiche del modello.
@@ -67,7 +68,7 @@ class SearchableMixin:
 
         # Se siamo qui, dobbiamo rigenerare
         # print(f"Refreshing embedding for {self.__class__.__name__}...")
-        vector = generate_embedding(content)
+        vector = embedding_service.generate_embedding(content)
         
         self.embedding = vector
         self.embedding_hash = new_hash
@@ -96,7 +97,8 @@ class SearchableMixin:
         query: str, 
         filters: Dict[str, Any] = None, 
         limit: int = 10,
-        k: int = 60
+        k: int = 60,
+        base_stmt = None
     ) -> List[Dict[str, Any]]:
         """
         API Unica: Gestisce internamente se fare RRF o solo FTS.
@@ -109,7 +111,10 @@ class SearchableMixin:
             ts_query = func.websearch_to_tsquery('english', query)
             
             # Select con Ranking FTS
-            stmt = select(cls, func.ts_rank_cd(cls.search_vector, ts_query).label("rank"))
+            # Base stmt override check
+            stmt = base_stmt if base_stmt is not None else select(cls)
+            stmt = stmt.add_columns(func.ts_rank_cd(cls.search_vector, ts_query).label("rank"))
+            
             stmt = stmt.where(cls.search_vector.op('@@')(ts_query))
             stmt = cls._apply_filters(stmt, filters)
             stmt = stmt.order_by(text("rank DESC")).limit(limit)
@@ -117,6 +122,9 @@ class SearchableMixin:
             results = session.execute(stmt).all()
             
             # Normalizziamo output identico a RRF
+            # Note: result rows might be different if base_stmt has joins? 
+            # Usually select(cls) returns (instance,). add_columns adds to referencing.
+            # safe unpacking:
             return [
                 {"score": row.rank, "entity": row[0]} 
                 for row in results
@@ -125,13 +133,16 @@ class SearchableMixin:
         # --- CASO B: HYBRID (RRF) ---
         elif cls._search_mode == "hybrid":
             # 1. Vector Search
-            vector = generate_embedding(query)
-            vec_stmt = select(cls).order_by(cls.embedding.l2_distance(vector))
+            vector = embedding_service.generate_embedding(query)
+            
+            vec_stmt = base_stmt if base_stmt is not None else select(cls)
+            vec_stmt = vec_stmt.order_by(cls.embedding.l2_distance(vector))
             vec_stmt = cls._apply_filters(vec_stmt, filters)
             vec_res = session.execute(vec_stmt.limit(limit * 2)).scalars().all()
 
             # 2. FTS Search
-            fts_stmt = select(cls).where(
+            fts_stmt = base_stmt if base_stmt is not None else select(cls)
+            fts_stmt = fts_stmt.where(
                 cls.search_vector.op('@@')(func.websearch_to_tsquery('english', query))
             )
             fts_stmt = cls._apply_filters(fts_stmt, filters)

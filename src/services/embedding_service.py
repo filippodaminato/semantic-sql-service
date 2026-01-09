@@ -4,6 +4,9 @@ import numpy as np
 from openai import OpenAI
 import hashlib
 from ..core.config import settings
+from ..core.logging import get_logger
+
+logger = get_logger("embedding_service")
 
 
 class EmbeddingService:
@@ -52,11 +55,13 @@ class EmbeddingService:
                 model=self.model,
                 input=text.strip()
             )
+            logger.info(f"Generated embedding for text of length {len(text)}")
             return response.data[0].embedding
         except Exception as e:
             # Log error and return zero vector as fallback
+            logger.error(f"Error generating embedding: {str(e)}")
             # In production, you might want to raise or use a fallback strategy
-            print(f"Error generating embedding: {e}")
+            # print(f"Error generating embedding: {e}")
             return [0.0] * self.dimensions
     
     def generate_embeddings_batch(self, texts: List[str]) -> List[List[float]]:
@@ -82,6 +87,7 @@ class EmbeddingService:
                 model=self.model,
                 input=non_empty_texts
             )
+            logger.info(f"Generated batch embeddings: {len(non_empty_texts)} items")
             embeddings = {item.index: item.embedding for item in response.data}
             
             # Map back to original list, handling empty texts
@@ -96,7 +102,7 @@ class EmbeddingService:
             
             return result
         except Exception as e:
-            print(f"Error generating batch embeddings: {e}")
+            logger.error(f"Error generating batch embeddings: {str(e)}")
             return [[0.0] * self.dimensions] * len(texts)
 
 

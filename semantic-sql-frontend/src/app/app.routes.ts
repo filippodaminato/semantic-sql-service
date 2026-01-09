@@ -13,6 +13,14 @@ export class AppRoutes {
                         path: 'admin/datasources',
                         loadComponent: () => import('./features/admin/datasources/datasources-list.component').then(m => m.DatasourcesListComponent)
                     },
+                    {
+                        path: 'playground/retrieval',
+                        loadComponent: () => import('./features/playground/retrieval/retrieval-playground.component').then(m => m.RetrievalPlaygroundComponent)
+                    },
+                    {
+                        path: 'playground/validator',
+                        loadComponent: () => import('./features/playground/validator/value-validator.component').then(m => m.ValueValidatorComponent)
+                    }
                 ]
             },
             {
@@ -33,18 +41,6 @@ export class AppRoutes {
             { path: 'admin/semantics', redirectTo: 'admin/datasources', pathMatch: 'full' },
             { path: 'admin/context', redirectTo: 'admin/datasources', pathMatch: 'full' },
             { path: 'admin/learning', redirectTo: 'admin/datasources', pathMatch: 'full' },
-            {
-                path: 'playground/search',
-                loadComponent: () => import('./features/playground/search/omni-search.component').then(m => m.OmniSearchComponent)
-            },
-            {
-                path: 'playground/graph',
-                loadComponent: () => import('./features/playground/graph/graph-explorer.component').then(m => m.GraphExplorerComponent)
-            },
-            {
-                path: 'playground/validator',
-                loadComponent: () => import('./features/playground/validator/value-validator.component').then(m => m.ValueValidatorComponent)
-            }
         ];
     }
 }

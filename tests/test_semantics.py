@@ -24,6 +24,7 @@ def test_create_metric(client, sample_datasource_id):
     response = client.post(
         "/api/v1/semantics/metrics",
         json={
+            "datasource_id": str(sample_datasource_id),
             "name": "Average Basket Size",
             "description": "Valore medio del carrello per ordini completati",
             "sql_expression": "AVG(t_sales.amount_total)",
@@ -31,6 +32,8 @@ def test_create_metric(client, sample_datasource_id):
             "filter_condition": "t_sales.status = 'COMPLETED'"
         }
     )
+    if response.status_code != status.HTTP_201_CREATED:
+        print(f"FAILED TO CREATE METRIC: {response.status_code} - {response.text}")
     assert response.status_code == status.HTTP_201_CREATED
     data = response.json()
     assert data["name"] == "Average Basket Size"
@@ -42,6 +45,7 @@ def test_create_metric_invalid_sql(client, sample_datasource_id):
     response = client.post(
         "/api/v1/semantics/metrics",
         json={
+            "datasource_id": str(sample_datasource_id),
             "name": "Invalid Metric",
             "sql_expression": "SELECT * FROM nonexistent_table",  # Invalid syntax or table
             "required_table_ids": []
@@ -53,12 +57,13 @@ def test_create_metric_invalid_sql(client, sample_datasource_id):
     assert response.status_code in [status.HTTP_400_BAD_REQUEST, status.HTTP_201_CREATED]
 
 
-def test_create_metric_duplicate_name(client):
+def test_create_metric_duplicate_name(client, sample_datasource_id):
     """Test creating duplicate metric name fails"""
     # Create first metric
     client.post(
         "/api/v1/semantics/metrics",
         json={
+            "datasource_id": str(sample_datasource_id),
             "name": "Test Metric",
             "sql_expression": "COUNT(*)",
             "required_table_ids": []
@@ -69,6 +74,7 @@ def test_create_metric_duplicate_name(client):
     response = client.post(
         "/api/v1/semantics/metrics",
         json={
+            "datasource_id": str(sample_datasource_id),
             "name": "Test Metric",
             "sql_expression": "SUM(*)",
             "required_table_ids": []
@@ -77,11 +83,12 @@ def test_create_metric_duplicate_name(client):
     assert response.status_code == status.HTTP_409_CONFLICT
 
 
-def test_create_metric_invalid_table_ids(client):
+def test_create_metric_invalid_table_ids(client, sample_datasource_id):
     """Test creating metric with invalid table IDs fails"""
     response = client.post(
         "/api/v1/semantics/metrics",
         json={
+            "datasource_id": str(sample_datasource_id),
             "name": "Test Metric",
             "sql_expression": "COUNT(*)",
             "required_table_ids": [str(uuid4())]  # Non-existent table
@@ -198,6 +205,7 @@ def test_update_metric(client, sample_datasource_id):
     
     # Create metric
     metric = client.post("/api/v1/semantics/metrics", json={
+        "datasource_id": str(sample_datasource_id),
         "name": "Original Metric",
         "sql_expression": "SUM(t_metrics.val)",
         "required_table_ids": [table["id"]]
@@ -224,6 +232,7 @@ def test_delete_metric(client, sample_datasource_id):
     }).json()
     
     metric = client.post("/api/v1/semantics/metrics", json={
+        "datasource_id": str(sample_datasource_id),
         "name": "Delete Me",
         "sql_expression": "SUM(t_del_metric.val)",
         "required_table_ids": [table["id"]]
@@ -313,6 +322,7 @@ def test_get_metric(client, sample_datasource_id):
     }).json()
     
     metric = client.post("/api/v1/semantics/metrics", json={
+        "datasource_id": str(sample_datasource_id),
         "name": "Get Test Metric",
         "sql_expression": "SUM(t_get_metric.val)",
         "required_table_ids": [table["id"]]
@@ -346,6 +356,7 @@ def test_update_metric_sql_expression(client, sample_datasource_id):
     }).json()
     
     metric = client.post("/api/v1/semantics/metrics", json={
+        "datasource_id": str(sample_datasource_id),
         "name": "SQL Update Metric",
         "sql_expression": "SUM(t_upd_sql.val)",
         "required_table_ids": [table["id"]]
@@ -451,6 +462,7 @@ def test_create_synonyms_for_metric(client, sample_datasource_id):
     }).json()
     
     metric = client.post("/api/v1/semantics/metrics", json={
+        "datasource_id": str(sample_datasource_id),
         "name": "Metric for Synonyms",
         "sql_expression": "SUM(t_metric_syn.val)",
         "required_table_ids": [table["id"]]

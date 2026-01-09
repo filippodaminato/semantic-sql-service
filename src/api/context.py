@@ -11,6 +11,13 @@ from ..schemas.context import (
     ContextRuleDTO, ContextRuleResponseDTO, ContextRuleUpdateDTO
 )
 from ..services.embedding_service import embedding_service
+from ..core.logging import get_logger
+import re
+
+logger = get_logger("context")
+
+def slugify(text: str) -> str:
+    return re.sub(r'[^a-z0-9]+', '-', text.lower()).strip('-')
 
 router = APIRouter(prefix="/api/v1/context", tags=["Context & Values"])
 
@@ -74,8 +81,10 @@ def create_nominal_values(
             continue
         
         # Create new value
+        val_slug = slugify(f"val-{values_data.column_id}-{item.raw}")
         value = LowCardinalityValue(
             column_id=values_data.column_id,
+            slug=val_slug,
             value_raw=item.raw,
             value_label=item.label,
             embedding=embedding
@@ -89,6 +98,8 @@ def create_nominal_values(
         all_values = new_values + created_values
         for value in all_values:
             db.refresh(value)
+        
+        logger.info(f"Batch created/updated {len(all_values)} nominal values for Column {values_data.column_id}")
         
         # Return unique list (avoid duplicates)
         seen = set()
@@ -150,6 +161,7 @@ def update_nominal_value(
     try:
         db.commit()
         db.refresh(value)
+        logger.info(f"Updated nominal value: {value.id}")
         return NominalValueResponseDTO.model_validate(value)
     except Exception as e:
         db.rollback()
@@ -175,6 +187,7 @@ def delete_nominal_value(
     try:
         db.delete(value)
         db.commit()
+        logger.info(f"Deleted nominal value: {value_id}")
     except Exception as e:
         db.rollback()
         raise HTTPException(
@@ -213,8 +226,12 @@ def create_context_rule(
     embedding = embedding_service.generate_embedding(rule_data.rule_text)
     
     # Create rule
+    rule_hash = str(hash(rule_data.rule_text))[-8:]
+    rule_slug = slugify(f"rule-{rule_data.column_id}-{rule_hash}")
+    
     rule = ColumnContextRule(
         column_id=rule_data.column_id,
+        slug=rule_slug,
         rule_text=rule_data.rule_text,
         embedding=embedding
     )
@@ -223,6 +240,7 @@ def create_context_rule(
         db.add(rule)
         db.commit()
         db.refresh(rule)
+        logger.info(f"Created context rule for Column {rule_data.column_id} (ID: {rule.id})")
         return ContextRuleResponseDTO.model_validate(rule)
     except Exception as e:
         db.rollback()
@@ -268,6 +286,7 @@ def update_context_rule(
     try:
         db.commit()
         db.refresh(rule)
+        logger.info(f"Updated context rule: {rule.id}")
         return ContextRuleResponseDTO.model_validate(rule)
     except Exception as e:
         db.rollback()
@@ -293,6 +312,7 @@ def delete_context_rule(
     try:
         db.delete(rule)
         db.commit()
+        logger.info(f"Deleted context rule: {rule_id}")
     except Exception as e:
         db.rollback()
         raise HTTPException(

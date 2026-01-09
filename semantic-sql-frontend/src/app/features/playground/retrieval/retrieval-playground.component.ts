@@ -1,0 +1,385 @@
+
+import { Component, inject, signal } from '@angular/core';
+import { CommonModule } from '@angular/common';
+import { FormsModule } from '@angular/forms';
+import { MatFormFieldModule } from '@angular/material/form-field';
+import { MatInputModule } from '@angular/material/input';
+import { MatButtonModule } from '@angular/material/button';
+import { MatSelectModule } from '@angular/material/select';
+import { MatIconModule } from '@angular/material/icon';
+import { MatCardModule } from '@angular/material/card';
+import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
+import { MatTooltipModule } from '@angular/material/tooltip';
+import { DiscoveryService } from '../../../core/services/discovery.service';
+import { JsonPipe } from '@angular/common';
+
+@Component({
+    selector: 'app-retrieval-playground',
+    standalone: true,
+    imports: [
+        CommonModule,
+        FormsModule,
+        MatFormFieldModule,
+        MatInputModule,
+        MatButtonModule,
+        MatSelectModule,
+        MatIconModule,
+        MatCardModule,
+        MatProgressSpinnerModule,
+        MatTooltipModule,
+        JsonPipe
+    ],
+    template: `
+    <div class="min-h-full w-full bg-[#0a0e14] relative overflow-hidden flex flex-col">
+
+      <!-- Ambient Background Glow -->
+      <div class="absolute top-0 left-0 w-full h-[500px] bg-gradient-to-b from-purple-900/10 via-transparent to-transparent pointer-events-none"></div>
+      <div class="absolute top-[-20%] right-[-10%] w-[600px] h-[600px] bg-indigo-600/10 rounded-full blur-[120px] pointer-events-none"></div>
+
+      <!-- Main Content -->
+      <div class="flex-1 flex flex-col p-8 max-w-7xl mx-auto w-full relative z-10 space-y-8">
+
+        <!-- Header -->
+        <div class="flex items-center gap-4 border-b border-white/5 pb-6">
+          <div class="p-3 bg-purple-500/10 rounded-xl border border-purple-500/20 shadow-[0_0_15px_rgba(168,85,247,0.1)]">
+            <mat-icon class="text-purple-400 scale-125">science</mat-icon>
+          </div>
+          <div>
+            <h1 class="text-3xl font-black text-white tracking-tight">Retrieval Playground</h1>
+            <p class="text-gray-400 font-light mt-1">Test drive the Discovery API with live queries and instant feedback.</p>
+          </div>
+        </div>
+
+        <!-- Two Column Layout -->
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-8 h-full">
+
+          <!-- Left Panel: Controls -->
+          <div class="lg:col-span-4 space-y-6">
+            <div class="bg-[#141a23] rounded-2xl border border-white/5 p-6 shadow-xl backdrop-blur-sm relative overflow-hidden group">
+               <!-- Subtle gradient overlay on card -->
+               <div class="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none"></div>
+
+               <h2 class="text-lg font-bold text-white mb-6 flex items-center gap-2">
+                 <mat-icon class="text-blue-400">tune</mat-icon> Configuration
+               </h2>
+
+               <div class="space-y-4 relative z-10">
+                  <!-- Endpoint -->
+                  <div class="space-y-1">
+                    <label class="text-xs font-mono text-gray-500 uppercase tracking-wider ml-1">Endpoint</label>
+                    <mat-form-field appearance="outline" class="w-full custom-dark-field">
+                      <mat-select [(ngModel)]="selectedEndpoint" (selectionChange)="clearResults()" placeholder="Select endpoint">
+                        <mat-option value="datasources">Datasources</mat-option>
+                        <mat-option value="tables">Tables</mat-option>
+                        <mat-option value="columns">Columns</mat-option>
+                        <mat-option value="metrics">Metrics</mat-option>
+                        <mat-option value="golden_sql">Golden SQL</mat-option>
+                        <mat-option value="synonyms">Synonyms</mat-option>
+                        <mat-option value="context_rules">Context Rules</mat-option>
+                        <mat-option value="low_cardinality_values">Low Cardinality Values</mat-option>
+                        <mat-option value="edges">Edges</mat-option>
+                      </mat-select>
+                      <mat-icon matPrefix class="text-gray-500 mr-2">api</mat-icon>
+                    </mat-form-field>
+                  </div>
+                  
+                  <!-- Query -->
+                   <div class="space-y-1">
+                    <label class="text-xs font-mono text-gray-500 uppercase tracking-wider ml-1">Search Query</label>
+                    <mat-form-field appearance="outline" class="w-full custom-dark-field">
+                      <input matInput [(ngModel)]="query" placeholder="e.g. revenue by region" (keydown.enter)="search()" autocomplete="off">
+                      <mat-icon matSuffix class="text-gray-500">search</mat-icon>
+                    </mat-form-field>
+                  </div>
+
+                  <!-- Limit -->
+                  <div class="space-y-1">
+                     <label class="text-xs font-mono text-gray-500 uppercase tracking-wider ml-1">Limit</label>
+                     <mat-form-field appearance="outline" class="w-full custom-dark-field">
+                       <input matInput type="number" [(ngModel)]="limit" min="1" max="100">
+                     </mat-form-field>
+                  </div>
+
+                  <!-- Context Filters -->
+                  <div class="pt-4 border-t border-white/5 space-y-4" *ngIf="selectedEndpoint() !== 'datasources'">
+                      <div class="flex items-center gap-2 text-gray-400 mb-2">
+                        <mat-icon class="text-xs scale-75">filter_list</mat-icon>
+                        <span class="text-xs font-bold uppercase tracking-wider">Context Filters</span>
+                      </div>
+
+                      <mat-form-field appearance="outline" class="w-full custom-dark-field text-sm">
+                          <mat-label>Datasource Slug</mat-label>
+                          <input matInput [(ngModel)]="datasourceSlug" placeholder="e.g. sales-db">
+                      </mat-form-field>
+
+                      <mat-form-field appearance="outline" class="w-full custom-dark-field text-sm"
+                          *ngIf="['columns', 'context_rules', 'low_cardinality_values', 'edges'].includes(selectedEndpoint())">
+                          <mat-label>Table Slug</mat-label>
+                          <input matInput [(ngModel)]="tableSlug" placeholder="e.g. orders">
+                      </mat-form-field>
+
+                      <mat-form-field appearance="outline" class="w-full custom-dark-field text-sm"
+                          *ngIf="selectedEndpoint() === 'low_cardinality_values'">
+                          <mat-label>Column Slug</mat-label>
+                          <input matInput [(ngModel)]="columnSlug" placeholder="e.g. status">
+                      </mat-form-field>
+                  </div>
+
+                  <div class="pt-6">
+                    <button mat-flat-button color="primary" class="w-full !h-12 !rounded-xl !text-base shadow-[0_0_20px_rgba(59,130,246,0.4)] hover:shadow-[0_0_30px_rgba(59,130,246,0.6)] transition-all"
+                        (click)="search()" [disabled]="loading()">
+                        <mat-icon *ngIf="!loading()" class="mr-2">play_arrow</mat-icon>
+                        <mat-progress-spinner *ngIf="loading()" mode="indeterminate" diameter="20" class="mr-2 inline-block"></mat-progress-spinner>
+                        <span *ngIf="!loading()">EXECUTE SEARCH</span>
+                        <span *ngIf="loading()">SEARCHING...</span>
+                    </button>
+                  </div>
+
+               </div>
+            </div>
+            
+             <!-- Documentation Hint Widget -->
+             <div class="bg-blue-900/10 border border-blue-500/20 rounded-xl p-4 flex gap-3">
+                <mat-icon class="text-blue-400 shrink-0">info</mat-icon>
+                <div class="text-sm">
+                    <p class="font-bold text-blue-200 mb-1">Did you know?</p>
+                    <p class="text-blue-300_70 text-gray-400 leading-relaxed">
+                        Discovery uses <strong>Hybrid Search</strong>, combining dense vector embeddings with sparse keyword matching (BM25) for optimal retrieval.
+                    </p>
+                </div>
+            </div>
+          </div>
+
+          <!-- Right Panel: Results -->
+          <div class="lg:col-span-8">
+            <div class="bg-[#141a23] rounded-2xl border border-white/5 h-full min-h-[500px] flex flex-col shadow-xl overflow-hidden relative">
+               
+               <!-- Toolbar -->
+               <div class="px-6 py-4 border-b border-white/5 flex justify-between items-center bg-[#0d1218]">
+                  <div class="flex items-center gap-2">
+                     <h2 class="text-lg font-bold text-white">Results</h2>
+                     <span *ngIf="hasSearched()" class="bg-green-500/10 text-green-400 text-xs px-2 py-0.5 rounded border border-green-500/20 font-mono">
+                        {{ resultTime() }}ms
+                     </span>
+                     <span *ngIf="hasSearched()" class="bg-blue-500/10 text-blue-400 text-xs px-2 py-0.5 rounded border border-blue-500/20 font-mono">
+                        {{ results().length }} hits
+                     </span>
+                  </div>
+                  <div class="flex gap-2">
+                     <button mat-icon-button class="!text-gray-500 hover:!text-white transition-colors" matTooltip="Copy JSON" (click)="copyResults()">
+                        <mat-icon class="text-sm">content_copy</mat-icon>
+                     </button>
+                     <button mat-icon-button class="!text-gray-500 hover:!text-white transition-colors" matTooltip="Clear" (click)="clearResults()">
+                        <mat-icon class="text-sm">delete_outline</mat-icon>
+                     </button>
+                  </div>
+               </div>
+
+               <!-- Content Area -->
+               <div class="flex-1 relative overflow-auto custom-scrollbar bg-[#0d1218]">
+                   <!-- Loading State -->
+                   <div *ngIf="loading()" class="absolute inset-0 z-20 flex flex-col items-center justify-center bg-[#0d1218]/80 backdrop-blur-sm">
+                       <mat-progress-spinner mode="indeterminate" diameter="50" color="accent"></mat-progress-spinner>
+                       <p class="mt-4 text-blue-400 font-mono text-sm animate-pulse">Processing query...</p>
+                   </div>
+                   
+                   <!-- Empty State (Intro) -->
+                   <div *ngIf="!hasSearched() && !loading()" class="h-full flex flex-col items-center justify-center text-center p-12 opacity-50">
+                       <div class="p-6 bg-white/5 rounded-full mb-6 animate-float">
+                          <mat-icon class="text-5xl text-gray-600 scale-150">troubleshoot</mat-icon>
+                       </div>
+                       <h3 class="text-xl font-bold text-gray-300">Ready to Discover</h3>
+                       <p class="text-gray-500 max-w-sm mt-2">Select an endpoint and enter a query to inspect your semantic graph.</p>
+                   </div>
+
+                   <!-- Empty State (No Results) -->
+                   <div *ngIf="hasSearched() && results().length === 0 && !loading()" class="h-full flex flex-col items-center justify-center text-center p-12">
+                       <mat-icon class="text-5xl text-gray-700 mb-4">search_off</mat-icon>
+                       <h3 class="text-lg font-bold text-gray-400">No results found</h3>
+                       <p class="text-gray-600 mt-2">Try adjusting your query or filters.</p>
+                   </div>
+
+                   <!-- JSON View -->
+                   <div *ngIf="hasSearched() && results().length > 0" class="p-6">
+                       <pre class="font-mono text-sm text-blue-300 leading-relaxed bg-[#0a0e14] p-6 rounded-xl border border-white/5 shadow-inner overflow-x-auto selection:bg-blue-500/30 selection:text-white">{{ results() | json }}</pre>
+                   </div>
+
+                   <!-- Error -->
+                   <div *ngIf="error()" class="m-6 p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-200 flex gap-3 items-start">
+                       <mat-icon class="text-red-400 shrink-0">error_outline</mat-icon>
+                       <div>
+                           <p class="font-bold text-red-400 text-sm">Error Occurred</p>
+                           <p class="text-xs opacity-80 mt-1 font-mono">{{ error() }}</p>
+                       </div>
+                   </div>
+               </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  `,
+    styles: [`
+    /* Custom Scrollbar for the dark theme */
+    .custom-scrollbar::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-track {
+        background: #0d1218; 
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb {
+        background: #2d3748; 
+        border-radius: 4px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+        background: #4a5568; 
+    }
+
+    /* Input Field Overrides for Dark Mode integration */
+    ::ng-deep .custom-dark-field .mat-mdc-text-field-wrapper {
+        background-color: #0d1218 !important;   /* Darker background for inputs */
+        border-radius: 8px !important;
+        border: 1px solid rgba(255, 255, 255, 0.05);
+    }
+    ::ng-deep .custom-dark-field .mat-mdc-form-field-icon-prefix > .mat-icon,
+    ::ng-deep .custom-dark-field .mat-mdc-form-field-icon-suffix > .mat-icon {
+        color: #718096 !important;
+    }
+    ::ng-deep .custom-dark-field .mat-mdc-input-element {
+        color: #e2e8f0 !important;
+        caret-color: #60a5fa !important;
+    }
+    ::ng-deep .custom-dark-field .mat-mdc-input-element::placeholder {
+        color: #4a5568 !important;
+    }
+    ::ng-deep .custom-dark-field .mat-mdc-form-field-focus-overlay {
+        opacity: 0 !important; /* Remove default focus overlay */
+    }
+    ::ng-deep .custom-dark-field.mat-focused .mat-mdc-text-field-wrapper {
+        border-color: rgba(96, 165, 250, 0.5) !important; /* Blue border on focus */
+    }
+    ::ng-deep .custom-dark-field .mat-mdc-floating-label {
+        color: #718096 !important;
+    }
+    ::ng-deep .custom-dark-field.mat-focused .mat-mdc-floating-label {
+        color: #60a5fa !important;
+    }
+
+    /* Select Panel Override */
+    ::ng-deep .mat-mdc-select-panel {
+        background-color: #1a202c !important;
+    }
+    ::ng-deep .mat-mdc-option {
+        color: #e2e8f0 !important;
+    }
+    ::ng-deep .mat-mdc-option:hover, ::ng-deep .mat-mdc-option:focus {
+        background-color: rgba(255, 255, 255, 0.05) !important;
+    }
+    ::ng-deep .mat-mdc-option.mdc-list-item--selected {
+        background-color: rgba(96, 165, 250, 0.1) !important;
+        color: #60a5fa !important;
+    }
+    
+    .animate-float {
+        animation: float 6s ease-in-out infinite;
+    }
+
+    @keyframes float {
+        0% { transform: translateY(0px); }
+        50% { transform: translateY(-10px); }
+        100% { transform: translateY(0px); }
+    }
+  `]
+})
+export class RetrievalPlaygroundComponent {
+    private discoveryService = inject(DiscoveryService);
+
+    selectedEndpoint = signal<string>('tables');
+    query = signal<string>('');
+    datasourceSlug = signal<string>('');
+    tableSlug = signal<string>('');
+    columnSlug = signal<string>('');
+    limit = signal<number>(10);
+
+    results = signal<any[]>([]);
+    loading = signal<boolean>(false);
+    error = signal<string | null>(null);
+    hasSearched = signal<boolean>(false);
+    resultTime = signal<number | null>(null);
+
+    clearResults() {
+        this.results.set([]);
+        this.error.set(null);
+        this.hasSearched.set(false);
+    }
+
+    copyResults() {
+        if (this.results().length > 0) {
+            navigator.clipboard.writeText(JSON.stringify(this.results(), null, 2));
+        }
+    }
+
+    search() {
+        this.loading.set(true);
+        this.error.set(null);
+        const start = performance.now();
+
+        const ep = this.selectedEndpoint();
+        const baseReq = {
+            query: this.query(),
+            limit: this.limit()
+        };
+
+        let obs;
+
+        switch (ep) {
+            case 'datasources':
+                obs = this.discoveryService.searchDatasources(baseReq);
+                break;
+            case 'tables':
+                obs = this.discoveryService.searchTables({ ...baseReq, datasource_slug: this.datasourceSlug() });
+                break;
+            case 'columns':
+                obs = this.discoveryService.searchColumns({ ...baseReq, datasource_slug: this.datasourceSlug(), table_slug: this.tableSlug() });
+                break;
+            case 'metrics':
+                obs = this.discoveryService.searchMetrics({ ...baseReq, datasource_slug: this.datasourceSlug() });
+                break;
+            case 'golden_sql':
+                obs = this.discoveryService.searchGoldenSql({ ...baseReq, datasource_slug: this.datasourceSlug() });
+                break;
+            case 'synonyms':
+                obs = this.discoveryService.searchSynonyms({ ...baseReq, datasource_slug: this.datasourceSlug() });
+                break;
+            case 'context_rules':
+                obs = this.discoveryService.searchContextRules({ ...baseReq, datasource_slug: this.datasourceSlug(), table_slug: this.tableSlug() });
+                break;
+            case 'low_cardinality_values':
+                obs = this.discoveryService.searchLowCardinalityValues({ ...baseReq, datasource_slug: this.datasourceSlug(), table_slug: this.tableSlug(), column_slug: this.columnSlug() });
+                break;
+            case 'edges':
+                obs = this.discoveryService.searchEdges({ ...baseReq, datasource_slug: this.datasourceSlug(), table_slug: this.tableSlug() });
+                break;
+            default:
+                this.error.set("Unknown endpoint");
+                this.loading.set(false);
+                return;
+        }
+
+        obs.subscribe({
+            next: (data) => {
+                this.results.set(data);
+                this.resultTime.set(Math.round(performance.now() - start));
+                this.hasSearched.set(true);
+                this.loading.set(false);
+            },
+            error: (err) => {
+                console.error(err);
+                this.error.set(err.message || 'Error executing search');
+                this.loading.set(false);
+            }
+        });
+    }
+}

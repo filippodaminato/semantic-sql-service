@@ -7,6 +7,7 @@ from datetime import datetime
 
 class MetricCreateDTO(BaseModel):
     """DTO for creating a semantic metric"""
+    datasource_id: Optional[UUID] = Field(None, description="Datasource UUID")
     name: str = Field(..., min_length=1, max_length=255, description="Metric name")
     slug: Optional[str] = Field(None, max_length=255, description="Unique slug")
     description: Optional[str] = Field(None, description="Business description")
@@ -24,6 +25,7 @@ class MetricCreateDTO(BaseModel):
 
 class MetricUpdateDTO(BaseModel):
     """DTO for updating a metric"""
+    datasource_id: Optional[UUID] = None
     name: Optional[str] = Field(None, min_length=1, max_length=255)
     description: Optional[str] = None
     sql_expression: Optional[str] = Field(None, min_length=1)
@@ -34,6 +36,7 @@ class MetricUpdateDTO(BaseModel):
 class MetricResponseDTO(BaseModel):
     """DTO for metric response"""
     id: UUID
+    datasource_id: Optional[UUID]
     name: str
     slug: str
     description: Optional[str]

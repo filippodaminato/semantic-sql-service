@@ -159,10 +159,15 @@ class TestTablesCRUD:
         
         response = client.put(f"/api/v1/admin/tables/{table_id}", json={
             "semantic_name": "Updated Name",
+            "physical_name": "t_updated_phys", # Test physical name update
+            "slug": "t-updated-plus-slug",     # Test slug update
             "description": "New description"
         })
         assert response.status_code == status.HTTP_200_OK
-        assert response.json()["updated"] is True
+        data = response.json()
+        assert data["updated"] is True
+        assert data["physical_name"] == "t_updated_phys"
+        assert data["slug"] == "t-updated-plus-slug"
     
     def test_delete_table(self, client, sample_datasource_id):
         """Test deleting table"""
@@ -351,6 +356,36 @@ class TestMetricsCRUD:
         assert response.json()["is_valid"] is True
 
 
+    
+    def test_update_metric(self, client, sample_datasource_id):
+        """Test updating a metric"""
+        # Create table first
+        table = client.post("/api/v1/admin/tables", json={
+            "datasource_id": str(sample_datasource_id),
+            "physical_name": "t_metric_upd",
+            "semantic_name": "Metric Update Test"
+        }).json()
+        
+        # Create metric
+        metric = client.post("/api/v1/admin/metrics", json={
+            "name": "To Update",
+            "sql_expression": "SELECT COUNT(*) FROM t_metric_upd",
+            "required_table_ids": [table["id"]]
+        }).json()
+        
+        # Update
+        response = client.put(f"/api/v1/admin/metrics/{metric['id']}", json={
+            "name": "Updated Metric",
+            "slug": "updated-metric-slug",
+            "sql_expression": "SELECT COUNT(*) + 1 FROM t_metric_upd"
+        })
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["updated"] is True
+        assert data["slug"] == "updated-metric-slug"
+        assert data["name"] == "Updated Metric"
+
+
 # =============================================================================
 # SYNONYMS TESTS
 # =============================================================================
@@ -379,6 +414,31 @@ class TestSynonymsCRUD:
         })
         assert response.status_code == status.HTTP_201_CREATED
         assert len(response.json()) == 3
+    
+    def test_create_synonyms_slugs(self, client, sample_datasource_id):
+        """Test friendlier synonym slugs"""
+        table = client.post("/api/v1/admin/tables", json={
+            "datasource_id": str(sample_datasource_id),
+            "physical_name": "t_syn_slug",
+            "semantic_name": "Synonym Slug Test"
+        }).json()
+
+        response = client.post("/api/v1/admin/synonyms/bulk", json={
+            "target_id": table["id"],
+            "target_type": "TABLE",
+            "terms": ["FriendlyTerm"]
+        })
+        assert response.status_code == status.HTTP_201_CREATED
+        data = response.json()
+        assert data[0]["slug"] == "friendlyterm" # Should be simple term
+        
+        # Test collision fallback
+        response2 = client.post("/api/v1/admin/synonyms/bulk", json={
+            "target_id": table["id"],
+            "target_type": "TABLE",
+            "terms": ["FriendlyTerm"] # Duplicate term, same target -> existed=True
+        })
+        assert response2.json()[0]["existed"] is True
     
     def test_delete_synonym(self, client, sample_datasource_id):
         """Test deleting a synonym"""

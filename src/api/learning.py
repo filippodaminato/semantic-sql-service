@@ -13,6 +13,13 @@ from ..schemas.learning import (
 )
 from ..services.embedding_service import embedding_service
 from ..services.sql_validator import sql_validator
+from ..core.logging import get_logger
+import re
+
+logger = get_logger("learning")
+
+def slugify(text: str) -> str:
+    return re.sub(r'[^a-z0-9]+', '-', text.lower()).strip('-')
 
 router = APIRouter(prefix="/api/v1/learning", tags=["Learning"])
 
@@ -58,8 +65,11 @@ def create_golden_sql(
     embedding = embedding_service.generate_embedding(golden_sql_data.prompt_text)
     
     # Create golden SQL
+    gsql_slug = slugify(f"gsql-{golden_sql_data.datasource_id}-{str(hash(golden_sql_data.prompt_text))[-8:]}")
+    
     golden_sql = GoldenSQL(
         datasource_id=golden_sql_data.datasource_id,
+        slug=gsql_slug,
         prompt_text=golden_sql_data.prompt_text,
         sql_query=golden_sql_data.sql_query,
         complexity_score=golden_sql_data.complexity,
@@ -71,6 +81,7 @@ def create_golden_sql(
         db.add(golden_sql)
         db.commit()
         db.refresh(golden_sql)
+        logger.info(f"Created Golden SQL example (ID: {golden_sql.id}) via Learning API")
         return GoldenSQLResponseDTO.model_validate(golden_sql)
     except Exception as e:
         db.rollback()
@@ -139,6 +150,7 @@ def update_golden_sql(
     try:
         db.commit()
         db.refresh(golden_sql)
+        logger.info(f"Updated Golden SQL example: {golden_sql.id} via Learning API")
         return GoldenSQLResponseDTO.model_validate(golden_sql)
     except Exception as e:
         db.rollback()
@@ -164,6 +176,7 @@ def delete_golden_sql(
     try:
         db.delete(golden_sql)
         db.commit()
+        logger.info(f"Deleted Golden SQL: {golden_sql_id} via Learning API")
     except Exception as e:
         db.rollback()
         raise HTTPException(
@@ -196,6 +209,7 @@ def create_ambiguity_log(
         db.add(log)
         db.commit()
         db.refresh(log)
+        logger.info(f"Logged ambiguity resolution (ID: {log.id})")
         return AmbiguityLogResponseDTO.model_validate(log)
     except Exception as e:
         db.rollback()
@@ -242,6 +256,7 @@ def update_ambiguity_log(
     try:
         db.commit()
         db.refresh(log)
+        logger.info(f"Updated ambiguity log: {log.id}")
         return AmbiguityLogResponseDTO.model_validate(log)
     except Exception as e:
         db.rollback()
@@ -267,6 +282,7 @@ def delete_ambiguity_log(
     try:
         db.delete(log)
         db.commit()
+        logger.info(f"Deleted ambiguity log: {log_id}")
     except Exception as e:
         db.rollback()
         raise HTTPException(

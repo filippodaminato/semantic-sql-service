@@ -1,11 +1,12 @@
 """SQLAlchemy database models"""
-from core.searchable_mixin import SearchableMixin
+
 from sqlalchemy import (
     Column, String, Text, Boolean, Integer, ForeignKey,
     JSON, DateTime, Enum as SQLEnum
 )
-from sqlalchemy.dialects.postgresql import UUID, ARRAY
+from sqlalchemy.dialects.postgresql import UUID, ARRAY, TSVECTOR
 from sqlalchemy.orm import relationship
+from sqlalchemy.schema import Computed
 from sqlalchemy.sql import func
 from pgvector.sqlalchemy import Vector
 import uuid
@@ -40,7 +41,7 @@ class SynonymTargetType(PyEnum):
 
 
 # Core Registry Models
-class Datasource(Base,SearchableMixin):
+class Datasource(SearchableMixin, Base):
     """
     Physical datasource definition.
     The physical query perimeter.
@@ -53,16 +54,24 @@ class Datasource(Base,SearchableMixin):
     description = Column(Text, nullable=True, doc="Description of the datasource")
     engine = Column(SQLEnum(SQLEngineType), nullable=False, doc="Il dialetto SQL target")
     context_signature = Column(Text, nullable=True, doc="Text blob with keywords, table names, key metrics")
-    embedding = Column(Vector(1536), nullable=True, doc="Embedding of description + context_signature")
-    embedding_hash = Column(String(64), nullable=True, doc="Hash of content used for embedding to track changes")
+    
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     
     # Relationships
     tables = relationship("TableNode", back_populates="datasource", cascade="all, delete-orphan")
 
+    search_vector = Column(
+        TSVECTOR,
+        Computed("to_tsvector('english', description || ' ' || context_signature)", persisted=True)
+    )
 
-class TableNode(Base):
+    def get_search_content(self) -> str:
+        parts = [self.description, self.context_signature]
+        return " ".join([p for p in parts if p]).strip()
+
+
+class TableNode(SearchableMixin, Base):
     """
     Table nodes in the knowledge graph.
     Main nodes of the knowledge graph.
@@ -76,8 +85,6 @@ class TableNode(Base):
     semantic_name = Column(String(255), nullable=False, doc="Nome 'pulito' per l'LLM (Orders Table)")
     description = Column(Text, nullable=True, doc="Metadato curato descrittivo. Driver primario per il retrieval vettoriale macro")
     ddl_context = Column(Text, nullable=True, doc="Lo statement CREATE TABLE minimizzato")
-    embedding = Column(Vector(1536), nullable=True, doc="Embedding denso di (Semantic Name + Description)")
-    embedding_hash = Column(String(64), nullable=True, doc="Hash of content used for embedding")
     
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
@@ -85,11 +92,20 @@ class TableNode(Base):
     # Relationships
     datasource = relationship("Datasource", back_populates="tables")
     columns = relationship("ColumnNode", back_populates="table", cascade="all, delete-orphan")
+
+    search_vector = Column(
+        TSVECTOR,
+        Computed("to_tsvector('english', semantic_name || ' ' || description)", persisted=True)
+    )
+
+    def get_search_content(self) -> str:
+        parts = [self.semantic_name, self.description]
+        return " ".join([p for p in parts if p]).strip()
     
     # Note: Unique constraint for (datasource_id, physical_name) should be added via Alembic migration
 
 
-class ColumnNode(Base):
+class ColumnNode(SearchableMixin, Base):
     """
     Column attributes.
     The atomic attributes.
@@ -105,8 +121,6 @@ class ColumnNode(Base):
     is_primary_key = Column(Boolean, default=False, nullable=False, doc="Critico per identificare le entità uniche")
     description = Column(Text, nullable=True)
     context_note = Column(Text, nullable=True)
-    embedding = Column(Vector(1536), nullable=True, doc="Embedding del nome e dei metadati per la ricerca fine")
-    embedding_hash = Column(String(64), nullable=True, doc="Hash of content used for embedding")
     
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
@@ -127,6 +141,15 @@ class ColumnNode(Base):
     )
     context_rules = relationship("ColumnContextRule", back_populates="column", cascade="all, delete-orphan")
     nominal_values = relationship("LowCardinalityValue", back_populates="column", cascade="all, delete-orphan")
+
+    search_vector = Column(
+        TSVECTOR,
+        Computed("to_tsvector('english', semantic_name || ' ' || description || ' ' || context_note)", persisted=True)
+    )
+
+    def get_search_content(self) -> str:
+        parts = [self.semantic_name or self.name, self.description, self.context_note]
+        return " ".join([p for p in parts if p]).strip()
 
 
 class SchemaEdge(Base):
@@ -152,7 +175,7 @@ class SchemaEdge(Base):
 
 
 # Semantic Layer Models
-class SemanticMetric(Base):
+class SemanticMetric(SearchableMixin, Base):
     """
     Business KPI definitions.
     Authoritative definition of business KPIs. Prevents LLM hallucinations.
@@ -160,20 +183,31 @@ class SemanticMetric(Base):
     __tablename__ = "semantic_metrics"
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    datasource_id = Column(UUID(as_uuid=True), ForeignKey("datasources.id"), nullable=True) # Nullable for migration safety, enforce later
     name = Column(String(255), nullable=False, unique=True, doc="Es. 'ARR - Annual Recurring Revenue'")
     slug = Column(String(255), nullable=False, unique=True, index=True)
     description = Column(Text, nullable=True, doc="Spiegazione di business per il retrieval")
     calculation_sql = Column(Text, nullable=False, doc="Lo snippet SQL puro")
     required_tables = Column(JSON, nullable=True, doc="Lista delle tabelle fisiche necessarie")
     filter_condition = Column(Text, nullable=True)
-    embedding = Column(Vector(1536), nullable=True, doc="Vettore del concetto di business")
-    embedding_hash = Column(String(64), nullable=True, doc="Hash of content used for embedding")
     
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
+    # Relationships
+    datasource = relationship("Datasource")
 
-class SemanticSynonym(Base):
+    search_vector = Column(
+        TSVECTOR,
+        Computed("to_tsvector('english', name || ' ' || description)", persisted=True)
+    )
+
+    def get_search_content(self) -> str:
+        parts = [self.name, self.description]
+        return " ".join([p for p in parts if p]).strip()
+
+
+class SemanticSynonym(SearchableMixin, Base):
     """
     Domain vocabulary mapping.
     Translation dictionary Domain <-> Data.
@@ -191,9 +225,17 @@ class SemanticSynonym(Base):
     
     # Note: Unique constraint should be added via Alembic migration
 
+    search_vector = Column(
+        TSVECTOR,
+        Computed("to_tsvector('english', term)", persisted=True)
+    )
+
+    def get_search_content(self) -> str:
+        return (self.term or "").strip()
+
 
 # Context & Value Models
-class ColumnContextRule(Base):
+class ColumnContextRule(SearchableMixin, Base):
     """
     Business rules for column interpretation.
     Tribal Knowledge.
@@ -204,8 +246,6 @@ class ColumnContextRule(Base):
     column_id = Column(UUID(as_uuid=True), ForeignKey("column_nodes.id"), nullable=False)
     slug = Column(String(255), nullable=False, unique=True, index=True)
     rule_text = Column(Text, nullable=False, doc="Istruzione esplicita")
-    embedding = Column(Vector(1536), nullable=True, doc="Permette di recuperare la regola solo quando pertinente")
-    embedding_hash = Column(String(64), nullable=True, doc="Hash of content used for embedding")
     
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
@@ -213,8 +253,16 @@ class ColumnContextRule(Base):
     # Relationships
     column = relationship("ColumnNode", back_populates="context_rules")
 
+    search_vector = Column(
+        TSVECTOR,
+        Computed("to_tsvector('english', rule_text)", persisted=True)
+    )
 
-class LowCardinalityValue(Base):
+    def get_search_content(self) -> str:
+        return (self.rule_text or "").strip()
+
+
+class LowCardinalityValue(SearchableMixin, Base):
     """
     Nominal value mappings.
     Vector lookup table for categorical values.
@@ -226,8 +274,6 @@ class LowCardinalityValue(Base):
     value_raw = Column(String(255), nullable=False, doc="Il dato reale nel DB")
     slug = Column(String(255), nullable=False, unique=True, index=True)
     value_label = Column(String(255), nullable=False, doc="Etichetta semantica/estesa")
-    embedding = Column(Vector(1536), nullable=True, doc="Vettore dell'etichetta")
-    embedding_hash = Column(String(64), nullable=True, doc="Hash of content used for embedding")
     
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
@@ -237,9 +283,20 @@ class LowCardinalityValue(Base):
     
     # Note: Unique constraint should be added via Alembic migration
 
+    # Override: Solo FTS per valori nominali (opzionale, ma default hybrid va bene)
+    _search_mode = "fts_only"
+
+    search_vector = Column(
+        TSVECTOR,
+        Computed("to_tsvector('english', value_label)", persisted=True)
+    )
+
+    def get_search_content(self) -> str:
+        return (self.value_label or "").strip()
+
 
 # Learning Models
-class GoldenSQL(Base):
+class GoldenSQL(SearchableMixin, Base):
     """
     Few-shot examples for learning.
     Long-term memory of perfect examples (Vanna style).
@@ -253,14 +310,20 @@ class GoldenSQL(Base):
     sql_query = Column(Text, nullable=False, doc="Query SQL validata 'Gold Standard'")
     complexity_score = Column(Integer, nullable=False, default=1, doc="1-5. Usato per selezionare esempi di difficoltà analoga")
     verified = Column(Boolean, default=True, nullable=False)
-    embedding = Column(Vector(1536), nullable=True, doc="Embedding della domanda")
-    embedding_hash = Column(String(64), nullable=True, doc="Hash of content used for embedding")
     
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     
     # Relationships
     datasource = relationship("Datasource")
+
+    search_vector = Column(
+        TSVECTOR,
+        Computed("to_tsvector('english', prompt_text)", persisted=True)
+    )
+
+    def get_search_content(self) -> str:
+        return (self.prompt_text or "").strip()
 
 
 class AmbiguityLog(Base):

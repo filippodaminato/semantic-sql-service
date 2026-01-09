@@ -112,6 +112,7 @@ def seed_ontology():
         {
             "physical_name": "organizations",
             "semantic_name": "Organizations",
+            "slug": "organizations",
             "description": "Hierarchical B2B customers and resellers. Contains company details and status.",
             "ddl_context": "CREATE TABLE organizations (id UUID PRIMARY KEY, name VARCHAR(255), status VARCHAR(50), region VARCHAR(10), parent_org_id UUID REFERENCES organizations(id), settings JSONB);",
             "columns": [
@@ -126,6 +127,7 @@ def seed_ontology():
         {
             "physical_name": "plans",
             "semantic_name": "Price Plans",
+            "slug": "plans",
             "description": "Product catalog and pricing tiers definitions.",
             "ddl_context": "CREATE TABLE plans (id UUID PRIMARY KEY, name VARCHAR(100), type VARCHAR(50), amount DECIMAL(10,2), valid_from TIMESTAMP, valid_to TIMESTAMP);",
             "columns": [
@@ -140,6 +142,7 @@ def seed_ontology():
         {
             "physical_name": "subscriptions",
             "semantic_name": "Subscriptions",
+            "slug": "subscriptions",
             "description": "Active and past customer subscriptions linking organizations to plans.",
             "ddl_context": "CREATE TABLE subscriptions (id UUID PRIMARY KEY, organization_id UUID REFERENCES organizations(id), plan_id UUID REFERENCES plans(id), status VARCHAR(50), current_period_end TIMESTAMP);",
             "columns": [
@@ -153,6 +156,7 @@ def seed_ontology():
         {
             "physical_name": "usage_events",
             "semantic_name": "Usage Events",
+            "slug": "usage-events",
             "description": "High-volume stream of metered usage events for billing.",
             "ddl_context": "CREATE TABLE usage_events (id UUID PRIMARY KEY, subscription_id UUID, event_type VARCHAR(100), metadata JSONB, timestamp TIMESTAMP);",
             "columns": [
@@ -166,6 +170,7 @@ def seed_ontology():
         {
             "physical_name": "invoices",
             "semantic_name": "Invoices",
+            "slug": "invoices",
             "description": "Monthly generated invoices containing charges and tax info.",
             "ddl_context": "CREATE TABLE invoices (id UUID PRIMARY KEY, subscription_id UUID, amount_due DECIMAL(10,2), status VARCHAR(50), created_at TIMESTAMP);",
             "columns": [
@@ -218,6 +223,7 @@ def seed_semantics(table_map):
     metrics = [
         {
             "name": "MRR",
+            "slug": "mrr",
             "description": "Monthly Recurring Revenue based on paid invoices (excluding tax).",
             "sql_expression": "SUM(invoices.amount_due)",
             "filter_condition": "invoices.status = 'PAID'",
@@ -225,12 +231,14 @@ def seed_semantics(table_map):
         },
         {
             "name": "Churn Rate",
+            "slug": "churn-rate",
             "description": "Percentage of canceled subscriptions relative to total subscriptions.",
             "sql_expression": "COUNT(CASE WHEN status='CANCELED' THEN 1 END) * 100.0 / COUNT(*)",
             "required_table_ids": [table_map["subscriptions"]["id"]]
         },
          {
             "name": "Active Subscriptions",
+            "slug": "active-subscriptions",
             "description": "Count of subscriptions that are currently active or trialing.",
             "sql_expression": "COUNT(*)",
             "filter_condition": "subscriptions.status IN ('ACTIVE', 'TRIALING')",
@@ -272,7 +280,13 @@ def seed_context(table_map):
     for t_name, c_name, text in rules:
         try:
             col_id = table_map[t_name]["cols"][c_name]
-            payload = {"column_id": col_id, "rule_text": text}
+            # Use part of rule text hash for stable slug
+            rule_hash = str(hash(text))[-6:]
+            payload = {
+                "column_id": col_id, 
+                "rule_text": text,
+                "slug": f"rule-{t_name}-{c_name}-{rule_hash}"
+            }
             make_request("POST", "/context-rules", payload)
             print(f"   Added Rule to {t_name}.{c_name}")
         except KeyError: pass
@@ -301,7 +315,11 @@ def seed_context(table_map):
         try:
             col_id = table_map[t_name]["cols"][c_name]
             for v in vals:
-                payload = {"raw": v["raw"], "label": v["label"]}
+                payload = {
+                    "raw": v["raw"], 
+                    "label": v["label"],
+                    "slug": f"val-{t_name}-{c_name}-{v['raw'].lower()}"
+                }
                 make_request("POST", f"/columns/{col_id}/values/manual", payload)
             print(f"   Mapped Values for {t_name}.{c_name}")
         except KeyError: pass

@@ -24,8 +24,10 @@ from ..db.models import (
     LowCardinalityValue, GoldenSQL,
     SQLEngineType, RelationshipType, SynonymTargetType
 )
-from ..services.embedding_service import embedding_service
 from ..services.sql_validator import sql_validator
+from ..core.logging import get_logger
+
+logger = get_logger("admin")
 
 
 router = APIRouter(prefix="/api/v1/admin", tags=["Admin Control Plane"])
@@ -73,6 +75,14 @@ class TableCreate(BaseModel):
     description: Optional[str] = None
     ddl_context: Optional[str] = None
     columns: Optional[List[dict]] = []
+
+
+class TableUpdate(BaseModel):
+    physical_name: Optional[str] = None
+    slug: Optional[str] = None
+    semantic_name: Optional[str] = None
+    description: Optional[str] = None
+    ddl_context: Optional[str] = None
 
 
 class TableResponse(BaseModel):
@@ -144,9 +154,11 @@ class MetricCreate(BaseModel):
 
 class MetricUpdate(BaseModel):
     name: Optional[str] = None
+    slug: Optional[str] = None
     description: Optional[str] = None
     sql_expression: Optional[str] = None
     filter_condition: Optional[str] = None
+    required_table_ids: Optional[List[UUID]] = None
 
 
 class SynonymBulkCreate(BaseModel):
@@ -232,23 +244,17 @@ def create_datasource(data: DatasourceCreate, db: Session = Depends(get_db)):
     if existing:
         raise HTTPException(status_code=409, detail="Datasource name or slug already exists")
     
-    embedding = None
-    if data.description or data.context_signature:
-        text = f"{data.description or ''} {data.context_signature or ''}".strip()
-        if text:
-            embedding = embedding_service.generate_embedding(text)
-    
     ds = Datasource(
         name=data.name,
         slug=slug,
         engine=SQLEngineType(data.engine),
         description=data.description,
-        context_signature=data.context_signature,
-        embedding=embedding
+        context_signature=data.context_signature
     )
     db.add(ds)
     db.commit()
     db.refresh(ds)
+    logger.info(f"Created datasource: {ds.name} (ID: {ds.id}, Slug: {ds.slug})")
     return ds
 
 
@@ -273,18 +279,13 @@ def update_datasource(datasource_id: UUID, data: DatasourceUpdate, db: Session =
         ds.description = data.description
     if data.context_signature is not None:
         ds.context_signature = data.context_signature
-    
-    # Re-generate embedding if description or context changed
-    if data.description is not None or data.context_signature is not None:
-        text = f"{ds.description or ''} {ds.context_signature or ''}".strip()
-        if text:
-            ds.embedding = embedding_service.generate_embedding(text)
             
     if data.connection_string is not None:
         ds.connection_string = data.connection_string
         
     db.commit()
     db.refresh(ds)
+    logger.info(f"Updated datasource: {ds.name} (ID: {datasource_id})")
     return ds
 
 
@@ -296,6 +297,7 @@ def delete_datasource(datasource_id: UUID, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Datasource not found")
     db.delete(ds)
     db.commit()
+    logger.info(f"Deleted datasource: {ds.name} (ID: {datasource_id})")
 
 
 @router.post("/datasources/{datasource_id}/refresh-index", response_model=RefreshIndexResponse)
@@ -308,23 +310,22 @@ def refresh_datasource_index(datasource_id: UUID, db: Session = Depends(get_db))
     updated = []
     
     # Update datasource embedding
-    text = f"{ds.description or ''} {ds.context_signature or ''}".strip()
-    if text:
-        ds.embedding = embedding_service.generate_embedding(text)
-        updated.append(f"datasource:{ds.name}")
+    # Update datasource embedding
+    ds.update_embedding_if_needed()
+    updated.append(f"datasource:{ds.name}")
     
     # Update table embeddings
     tables = db.query(TableNode).filter(TableNode.datasource_id == datasource_id).all()
     for table in tables:
-        text = f"{table.semantic_name} {table.description or ''}".strip()
-        table.embedding = embedding_service.generate_embedding(text)
+        # Embedding update handled by Mixin
+        table.update_embedding_if_needed()
         updated.append(f"table:{table.physical_name}")
         
         # Update column embeddings
         columns = db.query(ColumnNode).filter(ColumnNode.table_id == table.id).all()
         for col in columns:
-            text = f"{col.semantic_name or col.name} {col.description or ''} {col.context_note or ''}".strip()
-            col.embedding = embedding_service.generate_embedding(text)
+            # Embedding update handled by Mixin
+            col.update_embedding_if_needed()
             updated.append(f"column:{table.physical_name}.{col.name}")
     
     db.commit()
@@ -383,8 +384,6 @@ def create_table(data: TableCreate, db: Session = Depends(get_db)):
     if existing:
         raise HTTPException(status_code=409, detail="Table already exists in this datasource")
     
-    embedding = embedding_service.generate_embedding(f"{data.semantic_name} {data.description or ''}")
-    
     # Auto-generate slug if not provided
     table_slug = data.slug or slugify(f"{ds.slug}-{data.physical_name}")
 
@@ -394,17 +393,13 @@ def create_table(data: TableCreate, db: Session = Depends(get_db)):
         slug=table_slug,
         semantic_name=data.semantic_name,
         description=data.description,
-        ddl_context=data.ddl_context,
-        embedding=embedding
+        ddl_context=data.ddl_context
     )
     db.add(table)
     db.flush()
     
     columns = []
     for col_data in data.columns or []:
-        col_embedding = embedding_service.generate_embedding(
-            f"{col_data.get('semantic_name') or col_data['name']} {col_data.get('description', '')}"
-        )
         col_slug = col_data.get("slug") or slugify(f"{table_slug}-{col_data['name']}")
         col = ColumnNode(
             table_id=table.id,
@@ -414,14 +409,15 @@ def create_table(data: TableCreate, db: Session = Depends(get_db)):
             data_type=col_data["data_type"],
             is_primary_key=col_data.get("is_primary_key", False),
             description=col_data.get("description"),
-            context_note=col_data.get("context_note"),
-            embedding=col_embedding
+            context_note=col_data.get("context_note")
         )
         db.add(col)
         columns.append(col)
     
     db.commit()
     db.refresh(table)
+    
+    logger.info(f"Created table: {table.physical_name} (ID: {table.id}, Slug: {table.slug}) in Datasource {table.datasource_id}")
     
     return {
         "id": str(table.id),
@@ -487,27 +483,40 @@ def get_table(table_id: UUID, db: Session = Depends(get_db)):
 
 
 @router.put("/tables/{table_id}")
-def update_table(table_id: UUID, data: dict, db: Session = Depends(get_db)):
+def update_table(table_id: UUID, data: TableUpdate, db: Session = Depends(get_db)):
     """Update table properties."""
     table = db.query(TableNode).filter(TableNode.id == table_id).first()
     if not table:
         raise HTTPException(status_code=404, detail="Table not found")
     
-    if "semantic_name" in data:
-        table.semantic_name = data["semantic_name"]
-    if "description" in data:
-        table.description = data["description"]
-    if "ddl_context" in data:
-        table.ddl_context = data["ddl_context"]
+    if data.physical_name is not None:
+        table.physical_name = data.physical_name
     
-    # Recalculate embedding
-    table.embedding = embedding_service.generate_embedding(
-        f"{table.semantic_name} {table.description or ''}"
-    )
+    if data.slug is not None and data.slug != table.slug:
+        # Check uniqueness
+        existing = db.query(TableNode).filter(TableNode.slug == data.slug).first()
+        if existing:
+            raise HTTPException(status_code=409, detail=f"Slug '{data.slug}' already exists")
+        table.slug = data.slug
+
+    if data.semantic_name is not None:
+        table.semantic_name = data.semantic_name
+    if data.description is not None:
+        table.description = data.description
+    if data.ddl_context is not None:
+        table.ddl_context = data.ddl_context
     
     db.commit()
     db.refresh(table)
-    return {"id": str(table.id), "semantic_name": table.semantic_name, "updated": True}
+    logger.info(f"Updated table: {table.physical_name} (ID: {table.id})")
+    return {
+        "id": str(table.id),
+        "physical_name": table.physical_name,
+        "slug": table.slug,
+        "semantic_name": table.semantic_name,
+        "description": table.description,
+        "updated": True
+    }
 
 
 @router.delete("/tables/{table_id}", status_code=204)
@@ -518,6 +527,7 @@ def delete_table(table_id: UUID, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Table not found")
     db.delete(table)
     db.commit()
+    logger.info(f"Deleted table: {table.physical_name} (ID: {table_id})")
 
 
 @router.put("/columns/{column_id}")
@@ -549,12 +559,9 @@ def update_column(column_id: UUID, data: ColumnUpdate, db: Session = Depends(get
     if data.data_type is not None:
         col.data_type = data.data_type
     
-    # Recalculate embedding
-    text = f"{col.semantic_name or col.name} {col.description or ''} {col.context_note or ''}".strip()
-    col.embedding = embedding_service.generate_embedding(text)
-    
     db.commit()
     db.refresh(col)
+    logger.info(f"Updated column: {col.name} (ID: {col.id})")
     return {"id": str(col.id), "name": col.name, "updated": True}
 
 
@@ -566,6 +573,7 @@ def delete_column(column_id: UUID, db: Session = Depends(get_db)):
          raise HTTPException(status_code=404, detail="Column not found")
     db.delete(col)
     db.commit()
+    logger.info(f"Deleted column: {col.name} (ID: {column_id})")
 
 
 @router.post("/tables/{table_id}/columns", status_code=201)
@@ -594,10 +602,6 @@ def create_column(table_id: UUID, data: dict, db: Session = Depends(get_db)):
         context_note=data.get("context_note")
     )
     
-    # Generate embedding
-    text = f"{new_col.semantic_name or new_col.name} {new_col.description or ''} {new_col.context_note or ''}".strip()
-    new_col.embedding = embedding_service.generate_embedding(text)
-    
     # Generate slug
     # We need table slug. Since we don't have it easily loaded on object yet (flush needed?), fetch it.
     # table is already fetched above.
@@ -608,6 +612,7 @@ def create_column(table_id: UUID, data: dict, db: Session = Depends(get_db)):
     db.add(new_col)
     db.commit()
     db.refresh(new_col)
+    logger.info(f"Created column: {new_col.name} (ID: {new_col.id}) in Table {table.physical_name}")
     
     return {
         "id": str(new_col.id),
@@ -749,6 +754,7 @@ def create_relationship(data: RelationshipCreate, db: Session = Depends(get_db))
     db.add(edge)
     db.commit()
     db.refresh(edge)
+    logger.info(f"Created relationship: {edge.relationship_type} (ID: {edge.id})")
     return {"id": str(edge.id), "created": True}
 
 
@@ -789,6 +795,7 @@ def delete_relationship(relationship_id: UUID, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Relationship not found")
     db.delete(edge)
     db.commit()
+    logger.info(f"Deleted relationship: {relationship_id}")
 
 
 # =============================================================================
@@ -837,6 +844,7 @@ def delete_metric(metric_id: UUID, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Metric not found")
     db.delete(metric)
     db.commit()
+    logger.info(f"Deleted metric: {metric.name} (ID: {metric_id})")
 
 
 @router.post("/metrics", status_code=201)
@@ -858,8 +866,6 @@ def create_metric(data: MetricCreate, db: Session = Depends(get_db)):
         if not t:
             raise HTTPException(status_code=404, detail=f"Table {tid} not found")
     
-    embedding = embedding_service.generate_embedding(f"{data.name} {data.description or ''}")
-    
     metric_slug = data.slug or slugify(data.name)
 
     metric = SemanticMetric(
@@ -868,12 +874,12 @@ def create_metric(data: MetricCreate, db: Session = Depends(get_db)):
         description=data.description,
         calculation_sql=data.sql_expression,
         filter_condition=data.filter_condition,
-        required_tables=[str(tid) for tid in data.required_table_ids],  # Store as JSON list
-        embedding=embedding
+        required_tables=[str(tid) for tid in data.required_table_ids]  # Store as JSON list
     )
     db.add(metric)
     db.commit()
     db.refresh(metric)
+    logger.info(f"Created metric: {metric.name} (ID: {metric.id}, Slug: {metric.slug})")
     return {"id": str(metric.id), "name": metric.name, "slug": metric.slug, "created": True}
 
 
@@ -886,6 +892,14 @@ def update_metric(metric_id: UUID, data: MetricUpdate, db: Session = Depends(get
     
     if data.name is not None:
         metric.name = data.name
+    
+    if data.slug is not None and data.slug != metric.slug:
+        # Check uniqueness
+        existing = db.query(SemanticMetric).filter(SemanticMetric.slug == data.slug).first()
+        if existing:
+            raise HTTPException(status_code=409, detail=f"Slug '{data.slug}' already exists")
+        metric.slug = data.slug
+
     if data.description is not None:
         metric.description = data.description
     if data.sql_expression is not None:
@@ -896,10 +910,17 @@ def update_metric(metric_id: UUID, data: MetricUpdate, db: Session = Depends(get
     if data.filter_condition is not None:
         metric.filter_condition = data.filter_condition
     
-    metric.embedding = embedding_service.generate_embedding(f"{metric.name} {metric.description or ''}")
-    
+    if data.required_table_ids is not None:
+        # Validate table IDs
+        for tid in data.required_table_ids:
+            t = db.query(TableNode).filter(TableNode.id == tid).first()
+            if not t:
+                raise HTTPException(status_code=404, detail=f"Table {tid} not found")
+        metric.required_tables = [str(tid) for tid in data.required_table_ids]
+
     db.commit()
-    return {"id": str(metric.id), "updated": True}
+    logger.info(f"Updated metric: {metric.name} (ID: {metric.id})")
+    return {"id": str(metric.id), "slug": metric.slug, "name": metric.name, "updated": True}
 
 
 @router.post("/metrics/{metric_id}/validate", response_model=ValidateMetricResponse)
@@ -950,9 +971,27 @@ def create_synonyms_bulk(data: SynonymBulkCreate, db: Session = Depends(get_db))
             created.append({"id": str(existing.id), "term": term, "existed": True})
             continue
         
-        embedding = embedding_service.generate_embedding(term)
-        # Unique slug for synonym
-        syn_slug = slugify(f"syn-{term}-{data.target_id}")
+        # Friendly slug: syn-{target_name}-{term}
+        target_name = "unknown"
+        if data.target_type == "TABLE":
+            t = db.query(TableNode).filter(TableNode.id == data.target_id).first()
+            if t: target_name = t.physical_name
+        elif data.target_type == "COLUMN":
+            c = db.query(ColumnNode).filter(ColumnNode.id == data.target_id).first()
+            if c: target_name = c.name
+        elif data.target_type == "METRIC":
+            m = db.query(SemanticMetric).filter(SemanticMetric.id == data.target_id).first()
+            if m: target_name = m.name
+            
+        syn_slug = slugify(f"{term}") # Try simple term first
+        
+        # Check collision, fallback to target_name prefixed
+        if db.query(SemanticSynonym).filter(SemanticSynonym.slug == syn_slug).first():
+             syn_slug = slugify(f"{term}-{target_name}")
+             
+        # Fallback to random hash if still collision
+        if db.query(SemanticSynonym).filter(SemanticSynonym.slug == syn_slug).first():
+             syn_slug = slugify(f"{term}-{str(hash(data.target_id))[-4:]}")
 
         syn = SemanticSynonym(
             term=term,
@@ -965,6 +1004,7 @@ def create_synonyms_bulk(data: SynonymBulkCreate, db: Session = Depends(get_db))
         created.append({"id": str(syn.id), "term": term, "slug": syn.slug, "existed": False})
     
     db.commit()
+    logger.info(f"Bulk created {len(created)} synonyms for Target {data.target_id} ({data.target_type})")
     return created
 
 
@@ -993,6 +1033,7 @@ def delete_synonym(synonym_id: UUID, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Synonym not found")
     db.delete(syn)
     db.commit()
+    logger.info(f"Deleted synonym: {syn.term} (ID: {synonym_id})")
 
 
 # =============================================================================
@@ -1006,7 +1047,6 @@ def create_context_rule(data: ContextRuleCreate, db: Session = Depends(get_db)):
     if not col:
         raise HTTPException(status_code=404, detail="Column not found")
     
-    embedding = embedding_service.generate_embedding(data.rule_text)
     # Generate slug
     # col is fetched above
     rule_hash = str(hash(data.rule_text))[-8:]
@@ -1015,13 +1055,12 @@ def create_context_rule(data: ContextRuleCreate, db: Session = Depends(get_db)):
     rule = ColumnContextRule(
         column_id=data.column_id,
         slug=rule_slug,
-        rule_text=data.rule_text,
-        embedding=embedding
+        rule_text=data.rule_text
     )
     db.add(rule)
     db.commit()
-    db.commit()
     db.refresh(rule)
+    logger.info(f"Created context rule for Column {data.column_id} (ID: {rule.id})")
     return {"id": str(rule.id), "rule_text": rule.rule_text, "slug": rule.slug, "created": True}
 
 
@@ -1044,6 +1083,7 @@ def delete_context_rule(rule_id: UUID, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Rule not found")
     db.delete(rule)
     db.commit()
+    logger.info(f"Deleted context rule: {rule_id}")
 
 
 @router.put("/context-rules/{rule_id}")
@@ -1054,9 +1094,9 @@ def update_context_rule(rule_id: UUID, data: ContextRuleUpdate, db: Session = De
         raise HTTPException(status_code=404, detail="Rule not found")
     
     rule.rule_text = data.rule_text
-    rule.embedding = embedding_service.generate_embedding(data.rule_text)
     
     db.commit()
+    logger.info(f"Updated context rule: {rule.id}")
     return {"id": str(rule.id), "rule_text": rule.rule_text, "updated": True}
 
 
@@ -1107,11 +1147,9 @@ def add_column_value_manual(column_id: UUID, data: ValueManualCreate, db: Sessio
     
     if existing:
         existing.value_label = data.label
-        existing.embedding = embedding_service.generate_embedding(data.label)
         db.commit()
         return {"id": str(existing.id), "updated": True}
     
-    embedding = embedding_service.generate_embedding(data.label)
     # Generate slug
     val_slug = data.slug or slugify(f"val-{col.slug}-{data.raw}")
     
@@ -1119,13 +1157,12 @@ def add_column_value_manual(column_id: UUID, data: ValueManualCreate, db: Sessio
         column_id=column_id,
         slug=val_slug,
         value_raw=data.raw,
-        value_label=data.label,
-        embedding=embedding
+        value_label=data.label
     )
     db.add(value)
     db.commit()
     db.refresh(value)
-    db.refresh(value)
+    logger.info(f"Created manual value mapping for Column {column_id} (ID: {value.id})")
     return {"id": str(value.id), "slug": value.slug, "created": True}
 
 
@@ -1150,9 +1187,9 @@ def update_column_value(value_id: UUID, data: NominalValueUpdate, db: Session = 
         val.value_raw = data.raw
     if data.label is not None:
         val.value_label = data.label
-        val.embedding = embedding_service.generate_embedding(data.label)
         
     db.commit()
+    logger.info(f"Updated manual value mapping: {val.id}")
     return {"id": str(val.id), "raw": val.value_raw, "label": val.value_label, "updated": True}
 
 
@@ -1204,8 +1241,6 @@ def create_golden_sql(data: GoldenSQLCreate, db: Session = Depends(get_db)):
     if not is_valid:
         raise HTTPException(status_code=400, detail=f"Invalid SQL: {error}")
     
-    embedding = embedding_service.generate_embedding(data.prompt_text)
-    
     # Generate slug
     gsql_slug = data.slug or slugify(f"gsql-{ds.slug}-{str(hash(data.prompt_text))[-8:]}")
 
@@ -1215,12 +1250,12 @@ def create_golden_sql(data: GoldenSQLCreate, db: Session = Depends(get_db)):
         prompt_text=data.prompt_text,
         sql_query=data.sql_query,
         complexity_score=data.complexity,
-        verified=data.verified,
-        embedding=embedding
+        verified=data.verified
     )
     db.add(golden)
     db.commit()
     db.refresh(golden)
+    logger.info(f"Created Golden SQL example (ID: {golden.id})")
     return {"id": str(golden.id), "created": True}
 
 
@@ -1233,7 +1268,6 @@ def update_golden_sql(golden_sql_id: UUID, data: dict, db: Session = Depends(get
     
     if "prompt_text" in data:
         golden.prompt_text = data["prompt_text"]
-        golden.embedding = embedding_service.generate_embedding(data["prompt_text"])
     if "sql_query" in data:
         is_valid, error = sql_validator.validate_sql(data["sql_query"])
         if not is_valid:
@@ -1245,6 +1279,7 @@ def update_golden_sql(golden_sql_id: UUID, data: dict, db: Session = Depends(get
         golden.verified = data["verified"]
     
     db.commit()
+    logger.info(f"Updated Golden SQL example: {golden.id}")
     return {"id": str(golden.id), "updated": True}
 
 
@@ -1256,6 +1291,7 @@ def delete_golden_sql(golden_sql_id: UUID, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Golden SQL not found")
     db.delete(golden)
     db.commit()
+    logger.info(f"Deleted Golden SQL: {golden_sql_id}")
 
 
 
@@ -1284,8 +1320,6 @@ def import_golden_sql(data: GoldenSQLImport, db: Session = Depends(get_db)):
             errors.append({"index": idx, "error": f"Invalid SQL: {error}"})
             continue
         
-        embedding = embedding_service.generate_embedding(prompt)
-        
         # Auto-gen slug for import
         gsql_slug = slugify(f"gsql-{ds.slug}-{str(hash(prompt))[-8:]}")
 
@@ -1295,13 +1329,13 @@ def import_golden_sql(data: GoldenSQLImport, db: Session = Depends(get_db)):
             prompt_text=prompt,
             sql_query=sql,
             complexity_score=complexity,
-            verified=False,
-            embedding=embedding
+            verified=False
         )
         db.add(golden)
         imported.append({"prompt_text": prompt[:50] + "..."})
     
     db.commit()
+    logger.info(f"Imported {len(imported)} Golden SQL items (Errors: {len(errors)})")
     return {
         "imported_count": len(imported),
         "error_count": len(errors),
