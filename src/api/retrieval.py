@@ -3,8 +3,9 @@ Discovery API Suite.
 The new interface for Agents to explore the Semantic Graph.
 Replaces the old monolithic Retrieval API.
 """
+import json
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload, selectinload
 from sqlalchemy import or_
 from typing import List, Optional, Type, Any, Dict
 from uuid import UUID
@@ -49,12 +50,31 @@ class SearchService:
         return ds.id if ds else None
 
     def _resolve_table_id(self, datasource_id: UUID, slug: Optional[str]) -> Optional[UUID]:
-        if not slug or not datasource_id:
+        """
+        Resolve table ID from slug, optionally scoped to a datasource.
+        
+        Args:
+            datasource_id: Optional datasource ID to scope the search
+            slug: Table slug to resolve
+        
+        Returns:
+            Table UUID if found, None otherwise
+        """
+        if not slug:
             return None
-        table = self.db.query(TableNode).filter(
-            TableNode.datasource_id == datasource_id,
-            TableNode.slug == slug
-        ).first()
+        
+        if datasource_id:
+            # Scoped search within datasource
+            table = self.db.query(TableNode).filter(
+                TableNode.datasource_id == datasource_id,
+                TableNode.slug == slug
+            ).first()
+        else:
+            # Global search (table slugs are unique)
+            table = self.db.query(TableNode).filter(
+                TableNode.slug == slug
+            ).first()
+        
         return table.id if table else None
 
     def _resolve_column_id(self, table_id: UUID, slug: Optional[str]) -> Optional[UUID]:
@@ -81,26 +101,33 @@ class SearchService:
         if not hasattr(model, 'search'):
             # Fallback for non-searchable models (should not happen for core entities)
             return []
+        
+        # Ensure query is not None (handle None/empty strings)
+        if query is None:
+            query = ""
             
-        return model.search(
+        result = model.search(
             session=self.db,
             query=query,
-            filters=filters,
+            filters=filters or {},
             limit=limit,
             **kwargs
         )
+        
+        # Always return a list, never None
+        return result if result is not None else []
 
     # -------------------------------------------------------------------------
     # 1. Datasources
     # -------------------------------------------------------------------------
     def search_datasources(self, query: str, limit: int = 10) -> List[DatasourceSearchResult]:
+        """Search datasources and return complete information."""
         hits = self._generic_search(Datasource, query, {}, limit)
+        # Always return a list, never None
+        if not hits:
+            return []
         return [
-            DatasourceSearchResult(
-                slug=hit['entity'].slug,
-                name=hit['entity'].name,
-                description=hit['entity'].description
-            )
+            DatasourceSearchResult.model_validate(hit['entity'])
             for hit in hits
         ]
 
@@ -108,6 +135,16 @@ class SearchService:
     # 2. Golden SQL
     # -------------------------------------------------------------------------
     def search_golden_sql(self, query: str, datasource_slug: Optional[str], limit: int = 10) -> List[GoldenSQLResult]:
+        """
+        Search Golden SQL examples and return complete information.
+        
+        Returns empty list if query is empty or whitespace-only.
+        For listing all golden SQL examples, use the GET endpoint instead.
+        """
+        # Reject empty queries - search requires actual content
+        if not query or not query.strip():
+            return []
+        
         filters = {}
         if datasource_slug:
             ds_id = self._resolve_datasource_id(datasource_slug)
@@ -116,32 +153,51 @@ class SearchService:
             filters['datasource_id'] = ds_id
         
         hits = self._generic_search(GoldenSQL, query, filters, limit)
-        return [
-            GoldenSQLResult(
-                prompt=hit['entity'].prompt_text,
-                sql=hit['entity'].sql_query,
-                score=hit['score']
-            )
-            for hit in hits
-        ]
+        results = []
+        for hit in hits:
+            entity = hit['entity']
+            # Create result with all fields, including search score
+            result_dict = {
+                'id': entity.id,
+                'datasource_id': entity.datasource_id,
+                'prompt': entity.prompt_text,
+                'sql': entity.sql_query,
+                'complexity': entity.complexity_score,
+                'verified': entity.verified,
+                'score': hit['score'],
+                'created_at': entity.created_at,
+                'updated_at': entity.updated_at
+            }
+            results.append(GoldenSQLResult(**result_dict))
+        return results
 
     # -------------------------------------------------------------------------
     # 3. Tables
     # -------------------------------------------------------------------------
     def search_tables(self, query: str, datasource_slug: Optional[str], limit: int = 10) -> List[TableSearchResult]:
+        """
+        Search tables with optional filter by datasource.
+        
+        Args:
+            query: Search query string
+            datasource_slug: Optional filter by datasource slug
+            limit: Maximum number of results
+        
+        Returns:
+            List of TableSearchResult matching the query and filters.
+            Returns empty list if datasource_slug is provided but not found.
+        """
         filters = {}
         if datasource_slug:
             ds_id = self._resolve_datasource_id(datasource_slug)
-            if ds_id:
-                filters['datasource_id'] = ds_id
+            if not ds_id:
+                # Datasource not found -> return empty list
+                return []
+            filters['datasource_id'] = ds_id
 
         hits = self._generic_search(TableNode, query, filters, limit)
         return [
-            TableSearchResult(
-                slug=hit['entity'].slug,
-                semantic_name=hit['entity'].semantic_name,
-                description=hit['entity'].description
-            )
+            TableSearchResult.model_validate(hit['entity'])
             for hit in hits
         ]
 
@@ -149,6 +205,24 @@ class SearchService:
     # 4. Columns
     # -------------------------------------------------------------------------
     def search_columns(self, query: str, datasource_slug: Optional[str], table_slug: Optional[str], limit: int = 10) -> List[ColumnSearchResult]:
+        """
+        Search columns with optional filters by datasource and/or table.
+        
+        Args:
+            query: Search query string
+            datasource_slug: Optional filter by datasource slug
+            table_slug: Optional filter by table slug (can be used with or without datasource_slug)
+            limit: Maximum number of results
+        
+        Returns:
+            List of ColumnSearchResult matching the query and filters
+        
+        Note:
+            - If only datasource_slug is provided: searches all columns in that datasource
+            - If only table_slug is provided: searches columns in that table (table slugs are globally unique)
+            - If both are provided: searches columns in the table, with validation that table belongs to datasource
+            - If neither is provided: searches all columns globally
+        """
         filters = {}
         base_stmt = None
         from sqlalchemy import select
@@ -157,41 +231,72 @@ class SearchService:
         if datasource_slug:
             ds_id = self._resolve_datasource_id(datasource_slug)
             if not ds_id:
-                return [] # Datasource not found -> No results
+                return []  # Datasource not found -> No results
         
         if table_slug:
-            if not ds_id:
-                # Table slug requires datasource context usually, or we search usage?
-                # API spec usually implies hierarchal. If no DS provided, maybe resolving table globaly?
-                # For now assume hierarchal as per logic.
-                pass 
+            # Resolve table_id (with or without datasource context)
+            # Table slugs are globally unique, so we can resolve without datasource
+            # but if datasource is provided, we scope the search for better performance
+            table_id = self._resolve_table_id(ds_id, table_slug)
+            if not table_id:
+                return []  # Table not found -> No results
             
+            # Add table_id filter - this works directly on ColumnNode
+            filters['table_id'] = table_id
+            
+            # If we also have datasource_id, we can add it to filters for additional validation
+            # But since table_id already scopes to a specific table (which belongs to one datasource),
+            # this is redundant but harmless
             if ds_id:
-                 table_id = self._resolve_table_id(ds_id, table_slug)
-                 if not table_id:
-                     return [] # Table not found in this DS -> No results
-                 filters['table_id'] = table_id
-            else:
-                 # If user provided table_slug but NO datasource_slug, and we need DS to resolve table?
-                 # Current logic required ds_id for table resolution.
-                 # If we assume global uniqueness of table slugs (which models enforce), we could resolve globaly.
-                 # But let's stick to the existing strict hierarchy logic for now.
-                 pass
-
-        if ds_id and 'table_id' not in filters:
-            # Filter by datasource only -> Requires JOIN
+                # Verify table belongs to this datasource (safety check)
+                table = self.db.query(TableNode).filter(TableNode.id == table_id).first()
+                if table and table.datasource_id != ds_id:
+                    return []  # Table doesn't belong to specified datasource
+        elif ds_id:
+            # Filter by datasource only -> Requires JOIN since ColumnNode doesn't have datasource_id
+            # Create base_stmt with JOIN to TableNode and filter by datasource_id
             base_stmt = select(ColumnNode).join(TableNode).where(TableNode.datasource_id == ds_id)
         
+        # Perform search with filters and optional base_stmt
         hits = self._generic_search(ColumnNode, query, filters, limit, base_stmt=base_stmt)
-        return [
-            ColumnSearchResult(
-                table_slug=hit['entity'].table.slug, # N+1 but okay for 10 items
-                slug=hit['entity'].slug,
-                type=hit['entity'].data_type,
-                description=hit['entity'].description
-            )
-            for hit in hits
-        ]
+        
+        # Pre-load table relationships to avoid N+1 queries
+        # Collect all column IDs and eager load their table relationships
+        if hits:
+            column_ids = [hit['entity'].id for hit in hits]
+            # Use selectinload for efficient batch loading
+            columns_with_tables = self.db.query(ColumnNode).options(
+                selectinload(ColumnNode.table)
+            ).filter(ColumnNode.id.in_(column_ids)).all()
+            
+            # Create a map for quick lookup
+            column_map = {col.id: col for col in columns_with_tables}
+            
+            # Build results using pre-loaded data
+            results = []
+            for hit in hits:
+                entity_id = hit['entity'].id
+                entity = column_map.get(entity_id, hit['entity'])
+                # Get table slug from pre-loaded relationship (no additional query)
+                table_slug = entity.table.slug if entity.table else None
+                # Create result with all fields
+                result_dict = {
+                    'id': entity.id,
+                    'table_id': entity.table_id,
+                    'table_slug': table_slug,
+                    'slug': entity.slug,
+                    'name': entity.name,
+                    'semantic_name': entity.semantic_name,
+                    'data_type': entity.data_type,
+                    'is_primary_key': entity.is_primary_key,
+                    'description': entity.description,
+                    'context_note': entity.context_note,
+                    'created_at': entity.created_at,
+                    'updated_at': entity.updated_at
+                }
+                results.append(ColumnSearchResult(**result_dict))
+            return results
+        return []
 
     # -------------------------------------------------------------------------
     # 5. Edges (Custom Implementation - No SearchableMixin)
@@ -236,58 +341,172 @@ class SearchService:
         
         output = []
         for edge in results:
-            # Re-fetch or rely on lazy loading (which uses un-aliased models? careful).
-            # The query returned SchemaEdge objects. Accessing .source_column might trigger lazy load.
-            # Lazy load should work fine.
-            
-            # Format: table.column
+            # Lazy loading will fetch related columns and tables
+            # Format: table.column (flattened for convenience)
             src = f"{edge.source_column.table.slug}.{edge.source_column.slug}"
             tgt = f"{edge.target_column.table.slug}.{edge.target_column.slug}"
-            output.append(EdgeSearchResult(
-                source=src,
-                target=tgt,
-                type=edge.relationship_type.value,
-                description=edge.description
-            ))
+            
+            # Create result with all fields
+            result_dict = {
+                'id': edge.id,
+                'source_column_id': edge.source_column_id,
+                'target_column_id': edge.target_column_id,
+                'source': src,
+                'target': tgt,
+                'relationship_type': edge.relationship_type.value,
+                'is_inferred': edge.is_inferred,
+                'description': edge.description,
+                'context_note': getattr(edge, 'context_note', None),
+                'created_at': edge.created_at
+            }
+            output.append(EdgeSearchResult(**result_dict))
         return output
 
     # -------------------------------------------------------------------------
     # 6. Metrics
     # -------------------------------------------------------------------------
     def search_metrics(self, query: str, datasource_slug: Optional[str], limit: int = 10) -> List[MetricSearchResult]:
+        """
+        Search metrics with optional filter by datasource.
+        
+        Args:
+            query: Search query string
+            datasource_slug: Optional filter by datasource slug
+            limit: Maximum number of results
+        
+        Returns:
+            List of MetricSearchResult matching the query and filters.
+            Returns empty list if datasource_slug is provided but not found.
+        """
         filters = {}
+        base_stmt = None
+        from sqlalchemy import select
+        
         if datasource_slug:
             ds_id = self._resolve_datasource_id(datasource_slug)
-            if ds_id:
-                filters['datasource_id'] = ds_id
-        
-        hits = self._generic_search(SemanticMetric, query, filters, limit)
-        return [
-            MetricSearchResult(
-                slug=hit['entity'].slug,
-                name=hit['entity'].name,
-                sql_snippet=hit['entity'].calculation_sql,
-                tables_involved=[]
+            if not ds_id:
+                # Datasource not found -> return empty list
+                return []
+            # Create base_stmt to explicitly filter by datasource_id and exclude NULL
+            # This ensures metrics without datasource_id are not included in results
+            # We use base_stmt instead of filters to have more control over the WHERE clause
+            # and to explicitly exclude NULL values (which col == value should do, but this is safer)
+            base_stmt = select(SemanticMetric).where(
+                SemanticMetric.datasource_id == ds_id,
+                SemanticMetric.datasource_id.isnot(None)  # Explicitly exclude NULL values
             )
-            for hit in hits
-        ]
+            # Don't add to filters since we're using base_stmt (filters would be redundant)
+        
+        hits = self._generic_search(SemanticMetric, query, filters, limit, base_stmt=base_stmt)
+        results = []
+        for hit in hits:
+            entity = hit['entity']
+            # Parse required_tables from JSON if present
+            required_tables = None
+            if entity.required_tables:
+                if isinstance(entity.required_tables, list):
+                    required_tables = entity.required_tables
+                elif isinstance(entity.required_tables, str):
+                    try:
+                        required_tables = json.loads(entity.required_tables)
+                    except:
+                        required_tables = [entity.required_tables]
+            
+            result_dict = {
+                'id': entity.id,
+                'datasource_id': entity.datasource_id,
+                'slug': entity.slug,
+                'name': entity.name,
+                'description': entity.description,
+                'calculation_sql': entity.calculation_sql,
+                'required_tables': required_tables,
+                'filter_condition': entity.filter_condition,
+                'created_at': entity.created_at,
+                'updated_at': entity.updated_at
+            }
+            results.append(MetricSearchResult(**result_dict))
+        return results
 
     # -------------------------------------------------------------------------
     # 7. Synonyms
     # -------------------------------------------------------------------------
     def search_synonyms(self, query: str, datasource_slug: Optional[str], limit: int = 10) -> List[SynonymSearchResult]:
+        """Search synonyms and return complete information with resolved target slugs."""
         hits = self._generic_search(SemanticSynonym, query, {}, limit)
-        return [
-            SynonymSearchResult(
-                term=hit['entity'].term,
-                # We need to find the slug of the target. logic depends on target_type.
-                # For efficiency, we might just return the ID or do a quick lookup.
-                # Let's just return the term and type for now as the schema requires 'maps_to_slug'.
-                maps_to_slug="unknown", # TODO: Resolve target slug
-                target_type=hit['entity'].target_type.value
-            )
-            for hit in hits
-        ]
+        
+        if not hits:
+            return []
+        
+        # Batch load all target entities to avoid N+1 queries
+        # Group synonyms by target_type and collect IDs
+        table_ids = []
+        column_ids = []
+        metric_ids = []
+        value_ids = []
+        
+        for hit in hits:
+            entity = hit['entity']
+            target_type = entity.target_type.value
+            if target_type == "TABLE":
+                table_ids.append(entity.target_id)
+            elif target_type == "COLUMN":
+                column_ids.append(entity.target_id)
+            elif target_type == "METRIC":
+                metric_ids.append(entity.target_id)
+            elif target_type == "VALUE":
+                value_ids.append(entity.target_id)
+        
+        # Batch load all targets in parallel
+        table_map = {}
+        if table_ids:
+            tables = self.db.query(TableNode).filter(TableNode.id.in_(table_ids)).all()
+            table_map = {t.id: t.slug for t in tables}
+        
+        column_map = {}
+        if column_ids:
+            columns = self.db.query(ColumnNode).filter(ColumnNode.id.in_(column_ids)).all()
+            column_map = {c.id: c.slug for c in columns}
+        
+        metric_map = {}
+        if metric_ids:
+            metrics = self.db.query(SemanticMetric).filter(SemanticMetric.id.in_(metric_ids)).all()
+            metric_map = {m.id: m.slug for m in metrics}
+        
+        value_map = {}
+        if value_ids:
+            values = self.db.query(LowCardinalityValue).filter(LowCardinalityValue.id.in_(value_ids)).all()
+            value_map = {v.id: v.slug for v in values}
+        
+        # Build results using batch-loaded data
+        results = []
+        for hit in hits:
+            entity = hit['entity']
+            # Resolve target slug from batch-loaded maps
+            maps_to_slug = "unknown"
+            try:
+                target_type = entity.target_type.value
+                if target_type == "TABLE":
+                    maps_to_slug = table_map.get(entity.target_id, "unknown")
+                elif target_type == "COLUMN":
+                    maps_to_slug = column_map.get(entity.target_id, "unknown")
+                elif target_type == "METRIC":
+                    maps_to_slug = metric_map.get(entity.target_id, "unknown")
+                elif target_type == "VALUE":
+                    maps_to_slug = value_map.get(entity.target_id, "unknown")
+            except Exception:
+                # If resolution fails, keep "unknown"
+                pass
+            
+            result_dict = {
+                'id': entity.id,
+                'term': entity.term,
+                'target_id': entity.target_id,
+                'target_type': entity.target_type.value,
+                'maps_to_slug': maps_to_slug,
+                'created_at': entity.created_at
+            }
+            results.append(SynonymSearchResult(**result_dict))
+        return results
 
     # -------------------------------------------------------------------------
     # 8. Context Rules
@@ -324,10 +543,7 @@ class SearchService:
 
         hits = self._generic_search(ColumnContextRule, query, filters, limit, base_stmt=base_stmt)
         return [
-            ContextRuleSearchResult(
-                slug=hit['entity'].slug,
-                rule_text=hit['entity'].rule_text
-            )
+            ContextRuleSearchResult.model_validate(hit['entity'])
             for hit in hits
         ]
 
@@ -361,15 +577,40 @@ class SearchService:
              base_stmt = select(LowCardinalityValue).join(ColumnNode).join(TableNode).where(TableNode.datasource_id == ds_id)
 
         hits = self._generic_search(LowCardinalityValue, query, filters, limit, base_stmt=base_stmt)
-        return [
-            LowCardinalityValueSearchResult(
-                value_raw=hit['entity'].value_raw,
-                label=hit['entity'].value_label,
-                column_slug=hit['entity'].column.slug,
-                table_slug=hit['entity'].column.table.slug
-            )
-            for hit in hits
-        ]
+        
+        # Pre-load column and table relationships to avoid N+1 queries
+        if hits:
+            value_ids = [hit['entity'].id for hit in hits]
+            # Use selectinload to eagerly load column and table relationships
+            values_with_relations = self.db.query(LowCardinalityValue).options(
+                selectinload(LowCardinalityValue.column).selectinload(ColumnNode.table)
+            ).filter(LowCardinalityValue.id.in_(value_ids)).all()
+            
+            # Create a map for quick lookup
+            value_map = {v.id: v for v in values_with_relations}
+            
+            # Build results using pre-loaded data
+            results = []
+            for hit in hits:
+                entity_id = hit['entity'].id
+                entity = value_map.get(entity_id, hit['entity'])
+                # Get slugs from pre-loaded relationships (no additional queries)
+                column_slug = entity.column.slug if entity.column else None
+                table_slug = entity.column.table.slug if entity.column and entity.column.table else None
+                
+                result_dict = {
+                    'id': entity.id,
+                    'column_id': entity.column_id,
+                    'column_slug': column_slug,
+                    'table_slug': table_slug,
+                    'value_raw': entity.value_raw,
+                    'value_label': entity.value_label,
+                    'created_at': entity.created_at,
+                    'updated_at': entity.updated_at
+                }
+                results.append(LowCardinalityValueSearchResult(**result_dict))
+            return results
+        return []
 
 
 # =============================================================================

@@ -7,7 +7,7 @@ from datetime import datetime
 
 class MetricCreateDTO(BaseModel):
     """DTO for creating a semantic metric"""
-    datasource_id: Optional[UUID] = Field(None, description="Datasource UUID")
+    datasource_id: UUID = Field(..., description="Datasource UUID (required)")
     name: str = Field(..., min_length=1, max_length=255, description="Metric name")
     slug: Optional[str] = Field(None, max_length=255, description="Unique slug")
     description: Optional[str] = Field(None, description="Business description")

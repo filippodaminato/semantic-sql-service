@@ -6,7 +6,7 @@ from uuid import UUID
 import re
 
 from ..core.database import get_db
-from ..db.models import SemanticMetric, SemanticSynonym, SynonymTargetType, TableNode
+from ..db.models import Datasource, SemanticMetric, SemanticSynonym, SynonymTargetType, TableNode
 from ..schemas.semantics import (
     MetricCreateDTO, MetricResponseDTO, MetricUpdateDTO,
     SynonymBulkDTO, SynonymResponseDTO, SynonymCreateDTO, SynonymUpdateDTO
@@ -41,6 +41,7 @@ def create_metric(
     - Validates SQL syntax with sqlglot (dry run)
     - Validates required tables exist
     - Generates embedding for retrieval
+    - Requires datasource_id (metrics must belong to a datasource)
     """
     # Check if metric name already exists
     existing = db.query(SemanticMetric).filter(SemanticMetric.name == metric_data.name).first()
@@ -71,13 +72,22 @@ def create_metric(
             detail=f"Invalid SQL syntax: {error_msg}"
         )
     
+    # Validate datasource exists
+    if metric_data.datasource_id:
+        datasource = db.query(Datasource).filter(Datasource.id == metric_data.datasource_id).first()
+        if not datasource:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Datasource {metric_data.datasource_id} not found"
+            )
+    
     # Generate embedding
     embedding_text = f"{metric_data.name}"
     if metric_data.description:
         embedding_text += f" {metric_data.description}"
     embedding = embedding_service.generate_embedding(embedding_text)
     
-    # Create metric
+    # Create metric (datasource_id is now required)
     metric = SemanticMetric(
         datasource_id=metric_data.datasource_id,
         name=metric_data.name,

@@ -33,6 +33,7 @@ services:
     volumes:
       - ./src:/app/src
       - ./tests:/app/tests
+      - ./alembic:/app/alembic
     depends_on:
       db:
         condition: service_healthy

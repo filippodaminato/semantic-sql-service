@@ -109,6 +109,202 @@ Scatola nera del processo di generazione.
 
 ---
 
+## Data Flow Diagrams
+
+### Entity Relationship Diagram
+
+```mermaid
+erDiagram
+    Datasource ||--o{ TableNode : contains
+    TableNode ||--o{ ColumnNode : has
+    ColumnNode ||--o{ SchemaEdge : "source"
+    ColumnNode ||--o{ SchemaEdge : "target"
+    ColumnNode ||--o{ ColumnContextRule : has
+    ColumnNode ||--o{ LowCardinalityValue : has
+    Datasource ||--o{ SemanticMetric : has
+    Datasource ||--o{ GoldenSQL : has
+    TableNode ||--o{ SemanticSynonym : "synonym for"
+    ColumnNode ||--o{ SemanticSynonym : "synonym for"
+    SemanticMetric ||--o{ SemanticSynonym : "synonym for"
+    
+    Datasource {
+        uuid id PK
+        string name
+        string slug
+        enum engine
+        text description
+        vector embedding
+    }
+    
+    TableNode {
+        uuid id PK
+        uuid datasource_id FK
+        string physical_name
+        string semantic_name
+        text description
+        vector embedding
+    }
+    
+    ColumnNode {
+        uuid id PK
+        uuid table_id FK
+        string name
+        string semantic_name
+        string data_type
+        boolean is_primary_key
+        vector embedding
+    }
+    
+    SchemaEdge {
+        uuid id PK
+        uuid source_column_id FK
+        uuid target_column_id FK
+        enum relationship_type
+        boolean is_inferred
+    }
+    
+    SemanticMetric {
+        uuid id PK
+        uuid datasource_id FK
+        string name
+        text calculation_sql
+        vector embedding
+    }
+    
+    SemanticSynonym {
+        uuid id PK
+        string term
+        enum target_type
+        uuid target_id
+    }
+    
+    ColumnContextRule {
+        uuid id PK
+        uuid column_id FK
+        text rule_text
+        vector embedding
+    }
+    
+    LowCardinalityValue {
+        uuid id PK
+        uuid column_id FK
+        string value_raw
+        string value_label
+        vector embedding
+    }
+    
+    GoldenSQL {
+        uuid id PK
+        uuid datasource_id FK
+        text prompt_text
+        text sql_query
+        int complexity_score
+        vector embedding
+    }
+```
+
+### RAG Flow Diagram
+
+```mermaid
+flowchart TD
+    Start([User Query]) --> SemanticRouter[Semantic Router]
+    
+    SemanticRouter --> SearchMetrics[Search Semantic_Metric]
+    SemanticRouter --> SearchSynonyms[Search Semantic_Synonym]
+    SemanticRouter --> SearchValues[Search Low_Cardinality_Value]
+    
+    SearchMetrics --> FoundMetrics{Found Metrics?}
+    SearchSynonyms --> FoundSynonyms{Found Synonyms?}
+    SearchValues --> FoundValues{Found Values?}
+    
+    FoundMetrics -->|Yes| SchemaPruner[Schema Pruner]
+    FoundSynonyms -->|Yes| SchemaPruner
+    FoundValues -->|Yes| SchemaPruner
+    
+    SchemaPruner --> SelectTables[Select Relevant Table_Node]
+    SchemaPruner --> SelectColumns[Select Relevant Column_Node]
+    SchemaPruner --> SelectRules[Select Column_Context_Rule]
+    
+    SelectTables --> PromptSynthesis[Prompt Synthesis]
+    SelectColumns --> PromptSynthesis
+    SelectRules --> PromptSynthesis
+    
+    PromptSynthesis --> GetExamples[Get 3 Golden_SQL Examples]
+    GetExamples --> PromptSynthesis
+    
+    PromptSynthesis --> AssemblePrompt[Assemble Final Prompt]
+    AssemblePrompt --> LLM[Send to LLM]
+    
+    LLM --> GeneratedSQL[Generated SQL]
+    GeneratedSQL --> End([Return SQL])
+    
+    style SemanticRouter fill:#e1f5ff
+    style SchemaPruner fill:#fff4e1
+    style PromptSynthesis fill:#e8f5e9
+    style LLM fill:#f3e5f5
+```
+
+### Search Architecture Diagram
+
+```mermaid
+flowchart LR
+    Query[User Query] --> SearchMode{Search Mode?}
+    
+    SearchMode -->|Hybrid| VectorSearch[Vector Search]
+    SearchMode -->|Hybrid| FTSSearch[FTS Search]
+    SearchMode -->|FTS Only| FTSSearch
+    
+    VectorSearch --> GenerateEmbedding[Generate Query Embedding]
+    GenerateEmbedding --> VectorQuery[L2 Distance Query]
+    VectorQuery --> VectorResults[Vector Results]
+    
+    FTSSearch --> TSQuery[websearch_to_tsquery]
+    TSQuery --> FTSQuery[TSVECTOR Match]
+    FTSQuery --> FTSResults[FTS Results]
+    
+    VectorResults --> RRF[Reciprocal Rank Fusion]
+    FTSResults --> RRF
+    
+    RRF --> FinalResults[Final Ranked Results]
+    
+    style VectorSearch fill:#e1f5ff
+    style FTSSearch fill:#fff4e1
+    style RRF fill:#e8f5e9
+```
+
+### Embedding Generation Flow
+
+```mermaid
+sequenceDiagram
+    participant Model as SQLAlchemy Model
+    participant Event as Event Listener
+    participant Mixin as SearchableMixin
+    participant Service as EmbeddingService
+    participant OpenAI as OpenAI API
+    participant DB as Database
+    
+    Model->>Event: before_insert / before_update
+    Event->>Mixin: update_embedding_if_needed()
+    
+    Mixin->>Mixin: get_search_content()
+    Mixin->>Mixin: _compute_hash(content)
+    
+    alt Hash matches existing
+        Mixin-->>Event: Skip (cache hit)
+    else Hash differs or missing
+        Mixin->>Service: generate_embedding(content)
+        Service->>OpenAI: API Call
+        OpenAI-->>Service: Embedding Vector
+        Service-->>Mixin: Vector [1536 dims]
+        Mixin->>Mixin: Update embedding & hash
+        Mixin->>DB: Save embedding
+    end
+    
+    Event-->>Model: Continue save
+```
+
+---
+
 ## Nota Tecnica Finale
 Questa architettura supporta un flusso RAG a 3 stadi:
 1. **Semantic Router**: Analizza la domanda e cerca in Semantic_Metric, Semantic_Synonym e Low_Cardinality_Value.

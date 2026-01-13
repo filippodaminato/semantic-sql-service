@@ -216,12 +216,13 @@ def seed_ontology():
 
     return ds_id, table_map
 
-def seed_semantics(table_map):
+def seed_semantics(datasource_id, table_map):
     print("\n🧠 Seeding Semantic Layer...")
     
     # 1. Metrics
     metrics = [
         {
+            "datasource_id": datasource_id,
             "name": "MRR",
             "slug": "mrr",
             "description": "Monthly Recurring Revenue based on paid invoices (excluding tax).",
@@ -230,6 +231,7 @@ def seed_semantics(table_map):
             "required_table_ids": [table_map["invoices"]["id"]]
         },
         {
+            "datasource_id": datasource_id,
             "name": "Churn Rate",
             "slug": "churn-rate",
             "description": "Percentage of canceled subscriptions relative to total subscriptions.",
@@ -237,6 +239,7 @@ def seed_semantics(table_map):
             "required_table_ids": [table_map["subscriptions"]["id"]]
         },
          {
+            "datasource_id": datasource_id,
             "name": "Active Subscriptions",
             "slug": "active-subscriptions",
             "description": "Count of subscriptions that are currently active or trialing.",
@@ -359,11 +362,10 @@ if __name__ == "__main__":
     try:
         cleanup()
         ds_id, t_map = seed_ontology()
-        if t_map:
-            seed_semantics(t_map)
+        if t_map and ds_id:
+            seed_semantics(ds_id, t_map)
             seed_context(t_map)
-            if ds_id:
-                seed_golden_sql(ds_id)
+            seed_golden_sql(ds_id)
         print("\n✨ Seed Finished Successfully!")
     except KeyboardInterrupt:
         print("\n🛑 Seed Aborted.")

@@ -34,7 +34,11 @@ docker-compose up -d
 
 3. **Inizializzare il database**:
 ```bash
+# IMPORTANTE: Esegui sempre Alembic dentro Docker, non localmente!
+# Il database Docker ha l'utente 'semantic_user' che non esiste nel DB locale
 docker-compose exec api alembic upgrade head
+# Oppure usa il Makefile:
+make migrate
 ```
 
 4. **Verificare lo stato**:

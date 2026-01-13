@@ -313,15 +313,220 @@ Inserimento esempi corretti per few-shot learning.
 
 ---
 
+## Error Handling
+
+### Error Response Format
+
+All endpoints return errors in a consistent format:
+
+```json
+{
+  "detail": "Detailed error message explaining what went wrong"
+}
+```
+
+FastAPI automatically includes additional metadata in the response headers.
+
+### HTTP Status Codes
+
+| Status Code | Meaning | When It Occurs |
+|------------|---------|----------------|
+| `200 OK` | Success | Request completed successfully |
+| `201 Created` | Resource Created | New resource created successfully |
+| `204 No Content` | Success (No Body) | Resource deleted successfully |
+| `400 Bad Request` | Invalid Request | SQL syntax error, invalid parameters |
+| `404 Not Found` | Resource Not Found | Requested resource doesn't exist |
+| `409 Conflict` | Conflict | Resource with same name/identifier already exists |
+| `422 Unprocessable Entity` | Validation Error | Request body validation failed (Pydantic) |
+| `500 Internal Server Error` | Server Error | Unexpected server error |
+
+### Common Error Scenarios
+
+#### 400 Bad Request - SQL Validation Error
+
+**Example:**
+```json
+{
+  "detail": "Invalid SQL syntax: Invalid expression. Unexpected keyword 'SELCT'"
+}
+```
+
+**When it occurs:**
+- Creating a metric with invalid SQL expression
+- Creating golden SQL with syntax errors
+
+**How to fix:**
+- Check SQL syntax matches the specified dialect
+- Use SQL validator tools before submitting
+
+#### 404 Not Found - Resource Not Found
+
+**Example:**
+```json
+{
+  "detail": "Datasource 550e8400-e29b-41d4-a716-446655440000 not found"
+}
+```
+
+**When it occurs:**
+- Referencing non-existent datasource, table, or column
+- Using invalid UUIDs
+
+**How to fix:**
+- Verify the resource exists before referencing it
+- Check UUID format and validity
+
+#### 409 Conflict - Duplicate Resource
+
+**Example:**
+```json
+{
+  "detail": "Table with physical_name 't_sales_2024' already exists for this datasource"
+}
+```
+
+**When it occurs:**
+- Creating resource with duplicate name/slug
+- Attempting to create duplicate relationships
+
+**How to fix:**
+- Use unique names within the same scope
+- Check existing resources before creating
+- Use update endpoint if resource should be modified
+
+#### 422 Unprocessable Entity - Validation Error
+
+**Example:**
+```json
+{
+  "detail": [
+    {
+      "loc": ["body", "complexity"],
+      "msg": "ensure this value is less than or equal to 5",
+      "type": "value_error.number.not_le"
+    }
+  ]
+}
+```
+
+**When it occurs:**
+- Invalid field values (e.g., complexity > 5)
+- Missing required fields
+- Invalid data types
+
+**How to fix:**
+- Check request body matches schema
+- Verify all required fields are present
+- Ensure field values are within valid ranges
+
+#### 500 Internal Server Error
+
+**Example:**
+```json
+{
+  "detail": "Error creating table: Database connection failed"
+}
+```
+
+**When it occurs:**
+- Database connection issues
+- External service failures (OpenAI API)
+- Unexpected application errors
+
+**How to fix:**
+- Check service logs for details
+- Verify database connectivity
+- Retry request after checking service status
+
+### Error Handling Best Practices
+
+#### Client-Side
+
+1. **Always check status codes** before processing response
+2. **Handle 4xx errors** (client errors) differently from 5xx (server errors)
+3. **Retry 5xx errors** with exponential backoff
+4. **Display user-friendly messages** based on error details
+5. **Log errors** for debugging
+
+#### Example Error Handling (Python)
+
+```python
+import requests
+from requests.exceptions import RequestException
+
+try:
+    response = requests.post(
+        "http://localhost:8000/api/v1/ontology/tables",
+        json=table_data
+    )
+    response.raise_for_status()  # Raises exception for 4xx/5xx
+    return response.json()
+except requests.HTTPError as e:
+    if e.response.status_code == 409:
+        print("Table already exists")
+    elif e.response.status_code == 404:
+        print("Datasource not found")
+    elif e.response.status_code == 422:
+        errors = e.response.json()["detail"]
+        print(f"Validation errors: {errors}")
+    else:
+        print(f"Error: {e.response.json()['detail']}")
+except RequestException as e:
+    print(f"Request failed: {e}")
+```
+
+#### Example Error Handling (JavaScript)
+
+```javascript
+async function createTable(tableData) {
+  try {
+    const response = await fetch('http://localhost:8000/api/v1/ontology/tables', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(tableData)
+    });
+    
+    if (!response.ok) {
+      const error = await response.json();
+      
+      if (response.status === 409) {
+        console.error('Table already exists:', error.detail);
+      } else if (response.status === 404) {
+        console.error('Resource not found:', error.detail);
+      } else if (response.status === 422) {
+        console.error('Validation errors:', error.detail);
+      } else {
+        console.error('Error:', error.detail);
+      }
+      throw new Error(error.detail);
+    }
+    
+    return await response.json();
+  } catch (error) {
+    console.error('Request failed:', error);
+    throw error;
+  }
+}
+```
+
+### Rate Limiting
+
+Currently, rate limiting is not implemented. In production, consider:
+- Per-IP rate limiting
+- Per-API-key rate limiting
+- Request throttling for expensive operations (embedding generation)
+
+---
+
 ## Errori Standard
+
+**Note:** This section is kept for backward compatibility. See [Error Handling](#error-handling) above for comprehensive error documentation.
 
 Tutti gli endpoint restituiscono errori nel formato:
 
 ```json
 {
-  "error": "Error message",
-  "detail": "Detailed error information",
-  "timestamp": "2024-01-01T00:00:00Z"
+  "detail": "Detailed error information"
 }
 ```
 

@@ -144,6 +144,8 @@ class RelationshipResponseDTO(BaseModel):
         from_attributes = True
 
 class MetricCreate(BaseModel):
+    """DTO for creating a metric via admin API."""
+    datasource_id: UUID = Field(..., description="Datasource UUID (required)")
     name: str = Field(..., min_length=1)
     slug: Optional[str] = None
     description: Optional[str] = None
@@ -849,7 +851,16 @@ def delete_metric(metric_id: UUID, db: Session = Depends(get_db)):
 
 @router.post("/metrics", status_code=201)
 def create_metric(data: MetricCreate, db: Session = Depends(get_db)):
-    """Create a metric definition with SQL validation."""
+    """
+    Create a metric definition with SQL validation.
+    
+    Requires datasource_id - metrics must belong to a datasource.
+    """
+    # Validate datasource exists
+    datasource = db.query(Datasource).filter(Datasource.id == data.datasource_id).first()
+    if not datasource:
+        raise HTTPException(status_code=404, detail=f"Datasource {data.datasource_id} not found")
+    
     # Validate SQL
     is_valid, error = sql_validator.validate_sql(data.sql_expression)
     if not is_valid:
@@ -869,6 +880,7 @@ def create_metric(data: MetricCreate, db: Session = Depends(get_db)):
     metric_slug = data.slug or slugify(data.name)
 
     metric = SemanticMetric(
+        datasource_id=data.datasource_id,  # Required field
         name=data.name,
         slug=metric_slug,
         description=data.description,

@@ -1,4 +1,23 @@
-"""Router for Physical Ontology domain"""
+"""
+Physical Ontology API Router.
+
+This module provides REST endpoints for managing the physical database schema
+representation, including:
+- Datasources: Physical database connections and configurations
+- Tables: Database tables with semantic metadata
+- Columns: Table columns with data types and semantic descriptions
+- Relationships: JOIN relationships between columns (foreign keys, etc.)
+
+The ontology represents the "physical truth" of the database schema,
+which serves as the foundation for semantic SQL generation.
+
+Key Features:
+- Deep Create: Create tables with columns in a single transaction
+- Automatic embedding generation for semantic search
+- Relationship management for JOIN path discovery
+- Slug generation for human-readable identifiers
+"""
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from sqlalchemy import and_
@@ -25,15 +44,62 @@ from ..core.logging import get_logger
 
 logger = get_logger("ontology")
 
+
 def slugify(text: str) -> str:
+    """
+    Convert text to URL-friendly slug.
+    
+    Converts text to lowercase, replaces non-alphanumeric characters
+    with hyphens, and removes leading/trailing hyphens.
+    
+    Args:
+        text: Input text to slugify
+    
+    Returns:
+        str: URL-friendly slug
+    
+    Example:
+        >>> slugify("Sales Transactions 2024")
+        'sales-transactions-2024'
+        >>> slugify("Table_Name!")
+        'table-name'
+    """
     return re.sub(r'[^a-z0-9]+', '-', text.lower()).strip('-')
 
+
+# Initialize FastAPI router for ontology endpoints
 router = APIRouter(prefix="/api/v1/ontology", tags=["Physical Ontology"])
 
 
 @router.get("/datasources", response_model=List[DatasourceResponseDTO])
 def get_datasources(db: Session = Depends(get_db)):
-    """Get all datasources"""
+    """
+    Get all datasources.
+    
+    Returns a list of all registered datasources in the system.
+    A datasource represents a physical database connection and defines
+    the SQL dialect (PostgreSQL, BigQuery, Snowflake, etc.).
+    
+    Args:
+        db: Database session (injected by FastAPI)
+    
+    Returns:
+        List[DatasourceResponseDTO]: List of all datasources
+    
+    Example Response:
+        ```json
+        [
+            {
+                "id": "550e8400-e29b-41d4-a716-446655440000",
+                "name": "Sales DWH Prod",
+                "slug": "sales-dwh-prod",
+                "engine": "postgres",
+                "description": "Production sales data warehouse",
+                "created_at": "2024-01-01T00:00:00Z"
+            }
+        ]
+        ```
+    """
     datasources = db.query(Datasource).all()
     return [DatasourceResponseDTO.model_validate(ds) for ds in datasources]
 
@@ -44,9 +110,44 @@ def create_datasource(
     db: Session = Depends(get_db)
 ):
     """
-    Create a datasource (helper endpoint).
+    Create a new datasource.
     
-    Required before creating tables as tables need a datasource_id.
+    A datasource must be created before creating tables, as tables require
+    a datasource_id to associate them with a specific database.
+    
+    The datasource defines:
+    - SQL dialect (PostgreSQL, BigQuery, Snowflake, etc.)
+    - Connection metadata
+    - Schema scanning configuration
+    
+    Args:
+        datasource_data: Datasource creation data including:
+            - name: Human-readable name (e.g., "Sales DWH Prod")
+            - engine: SQL engine type (postgres, bigquery, snowflake, etc.)
+            - description: Optional description
+            - context_signature: Optional keywords and context
+        db: Database session (injected by FastAPI)
+    
+    Returns:
+        DatasourceResponseDTO: Created datasource with generated ID
+    
+    Raises:
+        HTTPException 409: If datasource name or slug already exists
+        HTTPException 500: If database error occurs
+    
+    Example Request:
+        ```json
+        {
+            "name": "Sales DWH Prod",
+            "engine": "postgres",
+            "description": "Production sales data warehouse",
+            "context_signature": "sales, transactions, e-commerce"
+        }
+        ```
+    
+    Note:
+        - Slug is auto-generated from name if not provided
+        - Embedding is generated from description + context_signature
     """
     # Auto-generate slug if not provided
     slug = datasource_data.slug
@@ -214,11 +315,65 @@ def create_table_deep(
     db: Session = Depends(get_db)
 ):
     """
-    Deep Create: Create a table and optionally all its columns in a single transaction.
+    Deep Create: Create a table and optionally all its columns in a single atomic transaction.
     
-    - Validates physical_name is unique per datasource
-    - Creates table with columns
-    - Generates embeddings for semantic_name + description
+    This endpoint implements a "deep create" pattern, allowing creation of a table
+    and all its columns in one operation. This ensures data consistency and
+    provides better performance than multiple separate requests.
+    
+    Process:
+    1. Validates datasource exists
+    2. Validates physical_name is unique within the datasource
+    3. Generates embedding for table (semantic_name + description)
+    4. Creates table record
+    5. For each column:
+       - Generates embedding (semantic_name/name + description + context_note)
+       - Creates column record linked to table
+    6. Commits entire transaction atomically
+    
+    Args:
+        table_data: Table creation data including:
+            - datasource_id: UUID of the datasource
+            - physical_name: Actual table name in database (e.g., "t_sales_2024")
+            - semantic_name: Human-readable name (e.g., "Sales Transactions")
+            - description: Table description for semantic search
+            - ddl_context: Optional CREATE TABLE statement
+            - columns: Optional list of columns to create
+        db: Database session (injected by FastAPI)
+    
+    Returns:
+        TableResponseDTO: Created table with all columns
+    
+    Raises:
+        HTTPException 404: If datasource not found
+        HTTPException 409: If physical_name already exists for this datasource
+        HTTPException 500: If database error occurs
+    
+    Example Request:
+        ```json
+        {
+            "datasource_id": "550e8400-e29b-41d4-a716-446655440000",
+            "physical_name": "t_sales_2024",
+            "semantic_name": "Sales Transactions",
+            "description": "Tabella principale contenente tutte le transazioni e-commerce",
+            "ddl_context": "CREATE TABLE t_sales_2024 (id INT, amount DECIMAL(10,2))",
+            "columns": [
+                {
+                    "name": "amount_total",
+                    "data_type": "DECIMAL(10,2)",
+                    "is_primary_key": false,
+                    "semantic_name": "Importo Totale",
+                    "description": "Importo totale della transazione",
+                    "context_note": "Include IVA. Se null, transazione fallita."
+                }
+            ]
+        }
+        ```
+    
+    Note:
+        - All operations are atomic: if any column creation fails, entire transaction rolls back
+        - Embeddings are generated automatically for semantic search
+        - Slug is auto-generated if not provided
     """
     # Validate datasource exists
     datasource = db.query(Datasource).filter(Datasource.id == table_data.datasource_id).first()
@@ -574,11 +729,47 @@ def create_relationship(
     db: Session = Depends(get_db)
 ):
     """
-    Define manual JOIN relationships.
+    Define a manual JOIN relationship between two columns.
     
-    - Validates both columns exist
-    - Validates source and target are different
-    - Prevents duplicate relationships (idempotent)
+    Relationships define how tables can be legally joined, which is critical
+    for SQL generation. Since we don't do automatic schema reflection,
+    relationships must be manually defined.
+    
+    The relationship is idempotent: if the same relationship already exists,
+    the existing one is returned instead of creating a duplicate.
+    
+    Args:
+        relationship_data: Relationship creation data including:
+            - source_column_id: UUID of the source column (foreign key)
+            - target_column_id: UUID of the target column (referenced key)
+            - relationship_type: ONE_TO_ONE, ONE_TO_MANY, or MANY_TO_MANY
+            - is_inferred: True if relationship is virtual (not enforced by DB)
+            - description: Optional description of the relationship
+        db: Database session (injected by FastAPI)
+    
+    Returns:
+        RelationshipResponseDTO: Created or existing relationship
+    
+    Raises:
+        HTTPException 400: If source and target columns are the same
+        HTTPException 404: If source or target column not found
+        HTTPException 500: If database error occurs
+    
+    Example Request:
+        ```json
+        {
+            "source_column_id": "550e8400-e29b-41d4-a716-446655440000",
+            "target_column_id": "660e8400-e29b-41d4-a716-446655440001",
+            "relationship_type": "ONE_TO_MANY",
+            "is_inferred": false,
+            "description": "Order belongs to Customer"
+        }
+        ```
+    
+    Note:
+        - Idempotent: Returns existing relationship if already exists
+        - Used by retrieval API to discover JOIN paths
+        - is_inferred=true for relationships not enforced by database constraints
     """
     # Validate source and target are different
     if relationship_data.source_column_id == relationship_data.target_column_id:
