@@ -2,8 +2,20 @@ import { Injectable } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
 
+// Paginated Response Interface
+export interface PaginatedResponse<T> {
+    items: T[];
+    total: number;
+    page: number;
+    limit: number;
+    has_next: boolean;
+    has_prev: boolean;
+    total_pages: number;
+}
+
 export interface DiscoverySearchRequest {
     query: string;
+    page?: number;
     limit?: number;
 }
 
@@ -46,39 +58,39 @@ export class DiscoveryService {
 
     constructor(private http: HttpClient) { }
 
-    searchDatasources(req: DatasourceSearchRequest): Observable<any[]> {
-        return this.http.post<any[]>(`${this.apiUrl}/datasources`, req);
+    searchDatasources(req: DatasourceSearchRequest): Observable<PaginatedResponse<any>> {
+        return this.http.post<PaginatedResponse<any>>(`${this.apiUrl}/datasources`, req);
     }
 
-    searchTables(req: TableSearchRequest): Observable<any[]> {
-        return this.http.post<any[]>(`${this.apiUrl}/tables`, req);
+    searchTables(req: TableSearchRequest): Observable<PaginatedResponse<any>> {
+        return this.http.post<PaginatedResponse<any>>(`${this.apiUrl}/tables`, req);
     }
 
-    searchColumns(req: ColumnSearchRequest): Observable<any[]> {
-        return this.http.post<any[]>(`${this.apiUrl}/columns`, req);
+    searchColumns(req: ColumnSearchRequest): Observable<PaginatedResponse<any>> {
+        return this.http.post<PaginatedResponse<any>>(`${this.apiUrl}/columns`, req);
     }
 
-    searchMetrics(req: MetricSearchRequest): Observable<any[]> {
-        return this.http.post<any[]>(`${this.apiUrl}/metrics`, req);
+    searchMetrics(req: MetricSearchRequest): Observable<PaginatedResponse<any>> {
+        return this.http.post<PaginatedResponse<any>>(`${this.apiUrl}/metrics`, req);
     }
 
-    searchGoldenSql(req: GoldenSQLSearchRequest): Observable<any[]> {
-        return this.http.post<any[]>(`${this.apiUrl}/golden_sql`, req);
+    searchGoldenSql(req: GoldenSQLSearchRequest): Observable<PaginatedResponse<any>> {
+        return this.http.post<PaginatedResponse<any>>(`${this.apiUrl}/golden_sql`, req);
     }
 
-    searchSynonyms(req: SynonymSearchRequest): Observable<any[]> {
-        return this.http.post<any[]>(`${this.apiUrl}/synonyms`, req);
+    searchSynonyms(req: SynonymSearchRequest): Observable<PaginatedResponse<any>> {
+        return this.http.post<PaginatedResponse<any>>(`${this.apiUrl}/synonyms`, req);
     }
 
-    searchContextRules(req: ContextRuleSearchRequest): Observable<any[]> {
-        return this.http.post<any[]>(`${this.apiUrl}/context_rules`, req);
+    searchContextRules(req: ContextRuleSearchRequest): Observable<PaginatedResponse<any>> {
+        return this.http.post<PaginatedResponse<any>>(`${this.apiUrl}/context_rules`, req);
     }
 
-    searchLowCardinalityValues(req: LowCardinalityValueSearchRequest): Observable<any[]> {
-        return this.http.post<any[]>(`${this.apiUrl}/low_cardinality_values`, req);
+    searchLowCardinalityValues(req: LowCardinalityValueSearchRequest): Observable<PaginatedResponse<any>> {
+        return this.http.post<PaginatedResponse<any>>(`${this.apiUrl}/low_cardinality_values`, req);
     }
 
-    searchEdges(req: EdgeSearchRequest): Observable<any[]> {
-        return this.http.post<any[]>(`${this.apiUrl}/edges`, req);
+    searchEdges(req: EdgeSearchRequest): Observable<PaginatedResponse<any>> {
+        return this.http.post<PaginatedResponse<any>>(`${this.apiUrl}/edges`, req);
     }
 }

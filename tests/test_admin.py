@@ -321,6 +321,7 @@ class TestMetricsCRUD:
         
         response = client.post("/api/v1/admin/metrics", json={
             "name": "Total Revenue",
+            "datasource_id": str(sample_datasource_id),
             "description": "Sum of all revenue",
             "sql_expression": "SELECT SUM(amount) FROM t_metric_test",
             "required_table_ids": [table["id"]]
@@ -328,10 +329,11 @@ class TestMetricsCRUD:
         assert response.status_code == status.HTTP_201_CREATED
         assert response.json()["created"] is True
     
-    def test_create_metric_invalid_sql(self, client):
+    def test_create_metric_invalid_sql(self, client, sample_datasource_id):
         """Test creating metric with invalid SQL fails"""
         response = client.post("/api/v1/admin/metrics", json={
             "name": "Bad Metric",
+            "datasource_id": str(sample_datasource_id),
             "sql_expression": "SELECT * FROM"  # Invalid SQL (incomplete)
         })
         assert response.status_code == status.HTTP_400_BAD_REQUEST
@@ -347,6 +349,7 @@ class TestMetricsCRUD:
         
         metric = client.post("/api/v1/admin/metrics", json={
             "name": "Validate Test",
+            "datasource_id": str(sample_datasource_id),
             "sql_expression": "SELECT AVG(val) FROM t_validate_metric",
             "required_table_ids": [table["id"]]
         }).json()
@@ -369,6 +372,7 @@ class TestMetricsCRUD:
         # Create metric
         metric = client.post("/api/v1/admin/metrics", json={
             "name": "To Update",
+            "datasource_id": str(sample_datasource_id),
             "sql_expression": "SELECT COUNT(*) FROM t_metric_upd",
             "required_table_ids": [table["id"]]
         }).json()
@@ -847,6 +851,7 @@ class TestWorkflowEndToEnd:
         # Step 2: Create metric
         metric = client.post("/api/v1/admin/metrics", json={
             "name": "Total Sales",
+            "datasource_id": str(sample_datasource_id),
             "description": "Sum of all sales amounts",
             "sql_expression": "SELECT SUM(amount) FROM sales",
             "required_table_ids": [table["id"]]

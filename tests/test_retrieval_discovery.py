@@ -75,7 +75,8 @@ def discovery_seed(db_session, sample_datasource):
         name="Total Orders",
         slug="total_orders_metric",
         description="Count of all orders",
-        calculation_sql="SELECT COUNT(*) FROM t_orders"
+        calculation_sql="SELECT COUNT(*) FROM t_orders",
+        required_tables=[str(table.id)] # Store as UUID string
     )
     db_session.add(metric)
 
@@ -149,8 +150,12 @@ def test_search_datasources(client, discovery_seed):
     resp = client.post(f"{PREFIX}/datasources", json={"query": "test_datasource"})
     assert resp.status_code == 200
     data = resp.json()
-    assert len(data) >= 1
-    assert data[0]["slug"] == "test_datasource_slug"
+    assert "items" in data
+    assert "total" in data
+    assert "page" in data
+    assert "limit" in data
+    assert len(data["items"]) >= 1
+    assert data["items"][0]["slug"] == "test_datasource_slug"
 
 def test_search_tables(client, discovery_seed):
     resp = client.post(f"{PREFIX}/tables", json={
@@ -159,8 +164,9 @@ def test_search_tables(client, discovery_seed):
     })
     assert resp.status_code == 200
     data = resp.json()
-    assert len(data) >= 1
-    assert data[0]["slug"] == "orders_table"
+    assert "items" in data
+    assert len(data["items"]) >= 1
+    assert data["items"][0]["slug"] == "orders_table"
 
 def test_search_columns(client, discovery_seed):
     # Test specific table filter
@@ -171,8 +177,9 @@ def test_search_columns(client, discovery_seed):
     })
     assert resp.status_code == 200
     data = resp.json()
-    assert len(data) >= 1
-    assert data[0]["slug"] == "order_id_col"
+    assert "items" in data
+    assert len(data["items"]) >= 1
+    assert data["items"][0]["slug"] == "order_id_col"
     
     # Test datasource filter (deep filter)
     resp2 = client.post(f"{PREFIX}/columns", json={
@@ -182,7 +189,7 @@ def test_search_columns(client, discovery_seed):
     # Should find user_id_col from users_table
     assert resp2.status_code == 200
     data2 = resp2.json()
-    slugs = [x["slug"] for x in data2]
+    slugs = [x["slug"] for x in data2["items"]]
     assert "user_id_col" in slugs
 
 def test_search_edges(client, discovery_seed):
@@ -192,8 +199,9 @@ def test_search_edges(client, discovery_seed):
     })
     assert resp.status_code == 200
     data = resp.json()
-    assert len(data) >= 1
-    assert "orders_table.user_ref_col" in data[0]["source"]
+    assert "items" in data
+    assert len(data["items"]) >= 1
+    assert "orders_table.user_ref_col" in data["items"][0]["source"]
 
 def test_search_edges_with_table(client, discovery_seed):
     # Test table filter
@@ -204,9 +212,10 @@ def test_search_edges_with_table(client, discovery_seed):
     })
     assert resp.status_code == 200
     data = resp.json()
-    assert len(data) >= 1
+    assert "items" in data
+    assert len(data["items"]) >= 1
     # Check that users_table is involved (as target in our seed: orders -> users)
-    edge = data[0]
+    edge = data["items"][0]
     assert "users_table" in edge['target'].split('.')[0]
 
 def test_search_metrics(client, discovery_seed):
@@ -214,8 +223,12 @@ def test_search_metrics(client, discovery_seed):
     resp = client.post(f"{PREFIX}/metrics", json={"query": "Total Orders"})
     assert resp.status_code == 200
     data = resp.json()
-    assert len(data) >= 1
-    assert data[0]["slug"] == "total_orders_metric"
+    assert "items" in data
+    assert len(data["items"]) >= 1
+    assert data["items"][0]["slug"] == "total_orders_metric"
+    # Verify required_tables are resolved to slugs
+    assert "required_tables" in data["items"][0]
+    assert data["items"][0]["required_tables"] == ["orders_table"]
     
     # Test datasource filtering
     resp_filtered = client.post(f"{PREFIX}/metrics", json={
@@ -224,15 +237,17 @@ def test_search_metrics(client, discovery_seed):
     })
     assert resp_filtered.status_code == 200
     data_filtered = resp_filtered.json()
-    assert len(data_filtered) >= 1
-    assert data_filtered[0]["slug"] == "total_orders_metric"
+    assert "items" in data_filtered
+    assert len(data_filtered["items"]) >= 1
+    assert data_filtered["items"][0]["slug"] == "total_orders_metric"
 
 def test_search_synonyms(client, discovery_seed):
     resp = client.post(f"{PREFIX}/synonyms", json={"query": "clients"})
     assert resp.status_code == 200
     data = resp.json()
-    assert len(data) >= 1
-    assert data[0]["term"] == "clients"
+    assert "items" in data
+    assert len(data["items"]) >= 1
+    assert data["items"][0]["term"] == "clients"
 
 def test_search_golden_sql(client, discovery_seed):
     resp = client.post(f"{PREFIX}/golden_sql", json={
@@ -241,8 +256,15 @@ def test_search_golden_sql(client, discovery_seed):
     })
     assert resp.status_code == 200
     data = resp.json()
-    assert len(data) >= 1
-    assert "active users" in data[0]["prompt"]
+    assert "items" in data
+    assert len(data["items"]) >= 1
+    assert "active users" in data["items"][0]["prompt"]
+    
+    # Test list all (empty query)
+    resp_all = client.post(f"{PREFIX}/golden_sql", json={"query": ""})
+    assert resp_all.status_code == 200
+    data_all = resp_all.json()
+    assert len(data_all["items"]) >= 1
 
 def test_search_context_rules(client, discovery_seed):
     # Test datasource level filtering
@@ -252,8 +274,9 @@ def test_search_context_rules(client, discovery_seed):
     })
     assert resp.status_code == 200
     data = resp.json()
-    assert len(data) >= 1
-    assert data[0]["slug"] == "rule_no_deleted_orders"
+    assert "items" in data
+    assert len(data["items"]) >= 1
+    assert data["items"][0]["slug"] == "rule_no_deleted_orders"
 
 def test_search_low_cardinality_values(client, discovery_seed):
     # Test table level filtering
@@ -264,6 +287,33 @@ def test_search_low_cardinality_values(client, discovery_seed):
     })
     assert resp.status_code == 200
     data = resp.json()
-    assert len(data) >= 1
-    assert data[0]["label"] == "Very Important Person"
-    assert data[0]["table_slug"] == "orders_table"
+    assert "items" in data
+    assert len(data["items"]) >= 1
+    assert data["items"][0]["value_label"] == "Very Important Person"
+    assert data["items"][0]["table_slug"] == "orders_table"
+
+    # Test search by value_raw (Regression test for issue where raw value was not indexed)
+    resp_raw = client.post(f"{PREFIX}/low_cardinality_values", json={
+        "query": "VIP",
+        "datasource_slug": discovery_seed['ds'].slug
+    })
+    assert resp_raw.status_code == 200
+    data_raw = resp_raw.json()
+    assert data_raw["items"][0]["value_raw"] == "VIP"
+
+    # Test independent table_slug filter (Regression test for bug where table_slug was ignored if no datasource_slug)
+    # Search for "VIP" restricted to orders table (should find it)
+    resp_orders = client.post(f"{PREFIX}/low_cardinality_values", json={
+        "query": "VIP",
+        "table_slug": "orders_table"
+    })
+    assert resp_orders.status_code == 200
+    assert len(resp_orders.json()["items"]) >= 1
+
+    # Search for "VIP" restricted to unrelated table (should NOT find it)
+    resp_other = client.post(f"{PREFIX}/low_cardinality_values", json={
+        "query": "VIP",
+        "table_slug": "products_table" # Assuming products_table exists from seed
+    })
+    assert resp_other.status_code == 200
+    assert len(resp_other.json()["items"]) == 0

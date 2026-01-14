@@ -220,6 +220,24 @@ def upgrade() -> None:
         ON schema_edges (source_column_id, target_column_id) 
         WHERE is_inferred = false
     """)
+
+    # --- ADDED: SchemaEdge Vector Search Optimizations ---
+    op.execute("""
+        CREATE INDEX IF NOT EXISTS idx_schema_edges_embedding_hnsw 
+        ON schema_edges USING hnsw (embedding vector_cosine_ops)
+        WITH (m = 16, ef_construction = 64)
+    """)
+
+    op.execute("""
+        CREATE INDEX IF NOT EXISTS ix_schema_edges_search_vector 
+        ON schema_edges USING GIN (search_vector)
+    """)
+    
+    # --- ADDED: LowCardinalityValue Search Optimization (updated for raw value search) ---
+    op.execute("""
+        CREATE INDEX IF NOT EXISTS ix_low_cardinality_values_search_vector 
+        ON low_cardinality_values USING GIN (search_vector)
+    """)
     
     # Convert required_tables from JSON to JSONB to support GIN index
     # This is safe for a fresh migration (no data to migrate)
@@ -534,6 +552,11 @@ def downgrade() -> None:
     op.drop_index('idx_column_nodes_table_slug', table_name='column_nodes')
     op.drop_index('idx_table_nodes_datasource_slug', table_name='table_nodes')
     
+    # Drop SchemaEdge and LCV Search Optimizations
+    op.execute("DROP INDEX IF EXISTS idx_schema_edges_embedding_hnsw")
+    op.execute("DROP INDEX IF EXISTS ix_schema_edges_search_vector")
+    op.execute("DROP INDEX IF EXISTS ix_low_cardinality_values_search_vector")
+
     # Drop foreign key indexes
     op.drop_index('idx_low_cardinality_values_column_id', table_name='low_cardinality_values')
     op.drop_index('idx_column_context_rules_column_id', table_name='column_context_rules')

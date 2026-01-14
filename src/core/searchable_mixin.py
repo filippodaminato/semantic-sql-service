@@ -234,6 +234,7 @@ class SearchableMixin:
         query: str,
         filters: Dict[str, Any] = None,
         limit: int = 10,
+        offset: int = 0,
         k: int = 60,
         base_stmt=None
     ) -> List[Dict[str, Any]]:
@@ -250,6 +251,7 @@ class SearchableMixin:
             query: Search query string (natural language)
             filters: Optional dictionary of column filters (e.g., {"datasource_id": uuid})
             limit: Maximum number of results to return (default: 10)
+            offset: Number of results to skip (default: 0)
             k: RRF constant for score calculation (default: 60)
                 Higher k = more weight to top-ranked results
             base_stmt: Optional base SQLAlchemy statement (for joins, etc.)
@@ -287,10 +289,17 @@ class SearchableMixin:
         if filters is None:
             filters = {}
 
-        # Reject empty queries - search requires actual content
-        # Empty queries can produce misleading results with low scores
+        # Handle empty queries: if filters are provided, return filtered results
+        # Otherwise, return empty (empty query without filters is not meaningful)
         if not query or not query.strip():
-            return []
+            # If no query, return all results (filtered if filters exist)
+            # This enables "list all" functionality when search box is empty
+            stmt = base_stmt if base_stmt is not None else select(cls)
+            stmt = cls._apply_filters(stmt, filters)
+            stmt = stmt.offset(offset).limit(limit)
+            results = session.execute(stmt).scalars().all()
+            # Return with a default score of 1.0 for non-search results
+            return [{"score": 1.0, "entity": obj} for obj in results]
 
         # --- CASE A: FTS ONLY (Pure Relational Search) ---
         if cls._search_mode == "fts_only":
@@ -315,8 +324,8 @@ class SearchableMixin:
             # Apply additional filters
             stmt = cls._apply_filters(stmt, filters)
             
-            # Order by relevance and limit results
-            stmt = stmt.order_by(text("rank DESC")).limit(limit)
+            # Order by relevance, apply offset and limit
+            stmt = stmt.order_by(text("rank DESC")).offset(offset).limit(limit)
 
             results = session.execute(stmt).all()
 
@@ -340,8 +349,9 @@ class SearchableMixin:
             vec_stmt = vec_stmt.order_by(cls.embedding.l2_distance(vector))
             vec_stmt = cls._apply_filters(vec_stmt, filters)
             
-            # Get top 2*limit results (we'll merge with FTS results)
-            vec_res = session.execute(vec_stmt.limit(limit * 2)).scalars().all()
+            # Get more results to account for offset (we'll merge with FTS results)
+            # Need enough results to cover offset + limit after RRF
+            vec_res = session.execute(vec_stmt.limit((offset + limit) * 2)).scalars().all()
 
             # Step 2: Full-Text Search
             # Build FTS query using PostgreSQL's websearch_to_tsquery
@@ -352,8 +362,8 @@ class SearchableMixin:
             )
             fts_stmt = cls._apply_filters(fts_stmt, filters)
             
-            # Get top 2*limit FTS results
-            fts_res = session.execute(fts_stmt.limit(limit * 2)).scalars().all()
+            # Get more results to account for offset (we'll merge with FTS results)
+            fts_res = session.execute(fts_stmt.limit((offset + limit) * 2)).scalars().all()
 
             # Step 3: Reciprocal Rank Fusion (RRF)
             # RRF combines results from multiple ranking methods
@@ -397,11 +407,89 @@ class SearchableMixin:
                 reverse=True
             )
             
-            # Return top 'limit' results
-            return final_results[:limit]
+            # Apply offset and limit
+            return final_results[offset:offset + limit]
 
         else:
             raise NotImplementedError(f"Search mode '{cls._search_mode}' not implemented")
+    
+    @classmethod
+    def search_count(
+        cls,
+        session: Session,
+        query: str,
+        filters: Dict[str, Any] = None,
+        base_stmt=None
+    ) -> int:
+        """
+        Count total number of results matching the search query and filters.
+        
+        This method performs a simplified count query without applying
+        RRF or full ranking, which makes it more efficient for pagination.
+        
+        Args:
+            session: SQLAlchemy database session
+            query: Search query string (natural language)
+            filters: Optional dictionary of column filters
+            base_stmt: Optional base SQLAlchemy statement (for joins, etc.)
+        
+        Returns:
+            Total number of matching results
+        """
+        if filters is None:
+            filters = {}
+        
+        # Handle empty queries: count all results matching filters only
+        if not query or not query.strip():
+            if base_stmt is not None:
+                # Count from base_stmt with filters only (no FTS condition)
+                # Note: filters should already be applied in base_stmt, but we apply them again to be safe
+                subq = base_stmt.subquery()
+                stmt = select(func.count()).select_from(subq)
+                # If filters are not already in base_stmt, we need to apply them
+                # For now, assume filters are in base_stmt
+            else:
+                # Standard count query with filters only
+                stmt = select(func.count()).select_from(cls)
+                stmt = cls._apply_filters(stmt, filters)
+            result = session.execute(stmt).scalar()
+            return result if result is not None else 0
+        
+        # Build count query with FTS condition
+        # For FTS, we can count directly
+        # For hybrid, we count items that match FTS criteria (simpler than vector count)
+        
+        # FIX: For Hybrid search (RRF), standard behavior is to return "best effort" results.
+        # But for pagination to be consistent ("1-10 of 100"), we should report total items matching filters,
+        # treating the search query as a ranking signal rather than a strict boolean filter.
+        # This aligns with "Ranked Retrieval" logic where documents are scored but not necessarily excluded.
+        if cls._search_mode == "hybrid":
+             if base_stmt is not None:
+                subq = base_stmt.subquery()
+                stmt = select(func.count()).select_from(subq)
+             else:
+                stmt = select(func.count()).select_from(cls)
+                stmt = cls._apply_filters(stmt, filters)
+             result = session.execute(stmt).scalar()
+             return result if result is not None else 0
+
+        # For FTS-only mode, we keep strict filtering because that's "Search" (Boolean)
+        ts_query = func.websearch_to_tsquery('simple', query)
+        
+        if base_stmt is not None:
+            # If base_stmt is provided, count from it with FTS condition
+            # Create a subquery from base_stmt and apply FTS filter
+            subq = base_stmt.where(cls.search_vector.op('@@')(ts_query)).subquery()
+            stmt = select(func.count()).select_from(subq)
+            # Apply additional filters on the subquery
+            # Note: filters are already applied in base_stmt, so we may not need to reapply
+        else:
+            # Standard count query
+            stmt = select(func.count()).select_from(cls)
+            stmt = stmt.where(cls.search_vector.op('@@')(ts_query))
+            stmt = cls._apply_filters(stmt, filters)
+        
+        return session.execute(stmt).scalar() or 0
 
 # --- SQLAlchemy Event Listeners ---
 # These listeners automatically update embeddings when models are saved

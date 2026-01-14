@@ -370,7 +370,7 @@ class ColumnNode(SearchableMixin, Base):
         return " ".join([p for p in parts if p]).strip()
 
 
-class SchemaEdge(Base):
+class SchemaEdge(SearchableMixin, Base):
     """
     Table relationships (topology).
     The highways of data. Defines how tables can be legally linked.
@@ -390,6 +390,23 @@ class SchemaEdge(Base):
     # Relationships
     source_column = relationship("ColumnNode", foreign_keys=[source_column_id], back_populates="source_relationships")
     target_column = relationship("ColumnNode", foreign_keys=[target_column_id], back_populates="target_relationships")
+
+    search_vector = Column(
+        TSVECTOR,
+        Computed("to_tsvector('simple', coalesce(description, '') || ' ' || coalesce(context_note, ''))", persisted=True)
+    )
+
+    def get_search_content(self) -> str:
+        parts = [self.description, self.context_note]
+        # Attempt to include related table names for richer context if loaded
+        try:
+             if self.source_column and self.source_column.table:
+                 parts.append(f"Source: {self.source_column.table.semantic_name or ''}")
+             if self.target_column and self.target_column.table:
+                 parts.append(f"Target: {self.target_column.table.semantic_name or ''}")
+        except:
+            pass
+        return " ".join([p for p in parts if p]).strip()
 
 
 # Semantic Layer Models
@@ -506,11 +523,11 @@ class LowCardinalityValue(SearchableMixin, Base):
 
     search_vector = Column(
         TSVECTOR,
-        Computed("to_tsvector('simple', value_label)", persisted=True)
+        Computed("to_tsvector('simple', value_label || ' ' || value_raw)", persisted=True)
     )
 
     def get_search_content(self) -> str:
-        return (self.value_label or "").strip()
+        return f"{self.value_label or ''} {self.value_raw or ''}".strip()
 
 
 # Learning Models

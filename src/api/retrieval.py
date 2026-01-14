@@ -29,7 +29,18 @@ from ..schemas.discovery import (
     SynonymSearchRequest, SynonymSearchResult,
     ContextRuleSearchRequest, ContextRuleSearchResult,
     # Values
-    LowCardinalityValueSearchRequest, LowCardinalityValueSearchResult
+    LowCardinalityValueSearchRequest, LowCardinalityValueSearchResult,
+    # Pagination
+    PaginatedResponse,
+    PaginatedDatasourceResponse,
+    PaginatedGoldenSQLResponse,
+    PaginatedTableResponse,
+    PaginatedColumnResponse,
+    PaginatedEdgeResponse,
+    PaginatedMetricResponse,
+    PaginatedSynonymResponse,
+    PaginatedContextRuleResponse,
+    PaginatedLowCardinalityValueResponse
 )
 
 router = APIRouter(prefix="/api/v1/discovery", tags=["Discovery"])
@@ -92,68 +103,139 @@ class SearchService:
         query: str, 
         filters: Dict[str, Any], 
         limit: int = 10,
+        offset: int = 0,
         **kwargs
-    ) -> List[Dict[str, Any]]:
+    ) -> tuple[List[Dict[str, Any]], int]:
         """
-        Leverage SearchableMixin for Hybrid Search (RRF).
+        Leverage SearchableMixin for Hybrid Search (RRF) with pagination support.
+        
+        Returns:
+            Tuple of (results, total_count)
         """
         # Ensure model has SearchableMixin
         if not hasattr(model, 'search'):
             # Fallback for non-searchable models (should not happen for core entities)
-            return []
+            return [], 0
         
         # Ensure query is not None (handle None/empty strings)
         if query is None:
             query = ""
+        
+        # Get total count for pagination metadata
+        total = 0
+        if hasattr(model, 'search_count'):
+            total = model.search_count(
+                session=self.db,
+                query=query,
+                filters=filters or {},
+                base_stmt=kwargs.get('base_stmt')
+            )
             
+        # Perform search with offset
         result = model.search(
             session=self.db,
             query=query,
             filters=filters or {},
             limit=limit,
+            offset=offset,
             **kwargs
         )
         
         # Always return a list, never None
-        return result if result is not None else []
+        results = result if result is not None else []
+        return results, total
 
+    # -------------------------------------------------------------------------
+    # Helper: Build Paginated Response
+    # -------------------------------------------------------------------------
+    def _build_paginated_response(
+        self,
+        items: List[Any],
+        total: int,
+        page: int,
+        limit: int
+    ) -> PaginatedResponse[Any]:
+        """
+        Build a paginated response with metadata.
+        
+        Args:
+            items: List of items for the current page
+            total: Total number of items across all pages (from database count)
+            page: Current page number (1-indexed)
+            limit: Number of items per page
+        
+        Returns:
+            PaginatedResponse with items and pagination metadata
+        """
+        # Calculate total_pages using ceiling division
+        # Formula: ceil(total / limit) = (total + limit - 1) // limit
+        # If total is 0, total_pages should be 0
+        total_pages = (total + limit - 1) // limit if total > 0 else 0
+        
+        has_next = page < total_pages
+        has_prev = page > 1
+        
+        return PaginatedResponse(
+            items=items,
+            total=total,
+            page=page,
+            limit=limit,
+            has_next=has_next,
+            has_prev=has_prev,
+            total_pages=total_pages
+        )
+    
     # -------------------------------------------------------------------------
     # 1. Datasources
     # -------------------------------------------------------------------------
-    def search_datasources(self, query: str, limit: int = 10) -> List[DatasourceSearchResult]:
-        """Search datasources and return complete information."""
-        hits = self._generic_search(Datasource, query, {}, limit)
-        # Always return a list, never None
-        if not hits:
-            return []
-        return [
+    def search_datasources(
+        self, 
+        query: str, 
+        page: int = 1, 
+        limit: int = 10
+    ) -> PaginatedResponse[DatasourceSearchResult]:
+        """Search datasources and return paginated results."""
+        offset = (page - 1) * limit
+        hits, total = self._generic_search(Datasource, query, {}, limit, offset)
+        
+        items = [
             DatasourceSearchResult.model_validate(hit['entity'])
             for hit in hits
         ]
+        
+        return self._build_paginated_response(items, total, page, limit)
 
     # -------------------------------------------------------------------------
     # 2. Golden SQL
     # -------------------------------------------------------------------------
-    def search_golden_sql(self, query: str, datasource_slug: Optional[str], limit: int = 10) -> List[GoldenSQLResult]:
+    def search_golden_sql(
+        self, 
+        query: str, 
+        datasource_slug: Optional[str], 
+        page: int = 1,
+        limit: int = 10
+    ) -> PaginatedResponse[GoldenSQLResult]:
         """
-        Search Golden SQL examples and return complete information.
+        Search Golden SQL examples and return paginated results.
         
-        Returns empty list if query is empty or whitespace-only.
+        Returns empty paginated response if query is empty or whitespace-only.
         For listing all golden SQL examples, use the GET endpoint instead.
         """
-        # Reject empty queries - search requires actual content
-        if not query or not query.strip():
-            return []
+        # Allow empty queries to return all results (e.g. for listing)
+        if query is None:
+            query = ""
         
         filters = {}
         if datasource_slug:
             ds_id = self._resolve_datasource_id(datasource_slug)
             if not ds_id:
-                return []
+                return self._build_paginated_response([], 0, page, limit)
             filters['datasource_id'] = ds_id
         
-        hits = self._generic_search(GoldenSQL, query, filters, limit)
-        results = []
+        offset = (page - 1) * limit
+        hits, total = self._generic_search(GoldenSQL, query, filters, limit, offset)
+        
+        items = []
         for hit in hits:
             entity = hit['entity']
             # Create result with all fields, including search score
@@ -168,43 +250,62 @@ class SearchService:
                 'created_at': entity.created_at,
                 'updated_at': entity.updated_at
             }
-            results.append(GoldenSQLResult(**result_dict))
-        return results
+            items.append(GoldenSQLResult(**result_dict))
+        
+        return self._build_paginated_response(items, total, page, limit)
 
     # -------------------------------------------------------------------------
     # 3. Tables
     # -------------------------------------------------------------------------
-    def search_tables(self, query: str, datasource_slug: Optional[str], limit: int = 10) -> List[TableSearchResult]:
+    def search_tables(
+        self, 
+        query: str, 
+        datasource_slug: Optional[str], 
+        page: int = 1,
+        limit: int = 10
+    ) -> PaginatedResponse[TableSearchResult]:
         """
         Search tables with optional filter by datasource.
         
         Args:
             query: Search query string
             datasource_slug: Optional filter by datasource slug
-            limit: Maximum number of results
+            page: Page number (1-indexed)
+            limit: Maximum number of results per page
         
         Returns:
-            List of TableSearchResult matching the query and filters.
-            Returns empty list if datasource_slug is provided but not found.
+            PaginatedResponse with TableSearchResult items.
+            Returns empty paginated response if datasource_slug is provided but not found.
         """
         filters = {}
         if datasource_slug:
             ds_id = self._resolve_datasource_id(datasource_slug)
             if not ds_id:
-                # Datasource not found -> return empty list
-                return []
+                # Datasource not found -> return empty paginated response
+                return self._build_paginated_response([], 0, page, limit)
             filters['datasource_id'] = ds_id
 
-        hits = self._generic_search(TableNode, query, filters, limit)
-        return [
+        offset = (page - 1) * limit
+        hits, total = self._generic_search(TableNode, query, filters, limit, offset)
+        
+        items = [
             TableSearchResult.model_validate(hit['entity'])
             for hit in hits
         ]
+        
+        return self._build_paginated_response(items, total, page, limit)
 
     # -------------------------------------------------------------------------
     # 4. Columns
     # -------------------------------------------------------------------------
-    def search_columns(self, query: str, datasource_slug: Optional[str], table_slug: Optional[str], limit: int = 10) -> List[ColumnSearchResult]:
+    def search_columns(
+        self, 
+        query: str, 
+        datasource_slug: Optional[str], 
+        table_slug: Optional[str], 
+        page: int = 1,
+        limit: int = 10
+    ) -> PaginatedResponse[ColumnSearchResult]:
         """
         Search columns with optional filters by datasource and/or table.
         
@@ -212,10 +313,11 @@ class SearchService:
             query: Search query string
             datasource_slug: Optional filter by datasource slug
             table_slug: Optional filter by table slug (can be used with or without datasource_slug)
-            limit: Maximum number of results
+            page: Page number (1-indexed)
+            limit: Maximum number of results per page
         
         Returns:
-            List of ColumnSearchResult matching the query and filters
+            PaginatedResponse with ColumnSearchResult items
         
         Note:
             - If only datasource_slug is provided: searches all columns in that datasource
@@ -231,7 +333,7 @@ class SearchService:
         if datasource_slug:
             ds_id = self._resolve_datasource_id(datasource_slug)
             if not ds_id:
-                return []  # Datasource not found -> No results
+                return self._build_paginated_response([], 0, page, limit)  # Datasource not found
         
         if table_slug:
             # Resolve table_id (with or without datasource context)
@@ -239,7 +341,7 @@ class SearchService:
             # but if datasource is provided, we scope the search for better performance
             table_id = self._resolve_table_id(ds_id, table_slug)
             if not table_id:
-                return []  # Table not found -> No results
+                return self._build_paginated_response([], 0, page, limit)  # Table not found
             
             # Add table_id filter - this works directly on ColumnNode
             filters['table_id'] = table_id
@@ -251,17 +353,19 @@ class SearchService:
                 # Verify table belongs to this datasource (safety check)
                 table = self.db.query(TableNode).filter(TableNode.id == table_id).first()
                 if table and table.datasource_id != ds_id:
-                    return []  # Table doesn't belong to specified datasource
+                    return self._build_paginated_response([], 0, page, limit)  # Table doesn't belong to datasource
         elif ds_id:
             # Filter by datasource only -> Requires JOIN since ColumnNode doesn't have datasource_id
             # Create base_stmt with JOIN to TableNode and filter by datasource_id
             base_stmt = select(ColumnNode).join(TableNode).where(TableNode.datasource_id == ds_id)
         
         # Perform search with filters and optional base_stmt
-        hits = self._generic_search(ColumnNode, query, filters, limit, base_stmt=base_stmt)
+        offset = (page - 1) * limit
+        hits, total = self._generic_search(ColumnNode, query, filters, limit, offset, base_stmt=base_stmt)
         
         # Pre-load table relationships to avoid N+1 queries
         # Collect all column IDs and eager load their table relationships
+        items = []
         if hits:
             column_ids = [hit['entity'].id for hit in hits]
             # Use selectinload for efficient batch loading
@@ -273,17 +377,16 @@ class SearchService:
             column_map = {col.id: col for col in columns_with_tables}
             
             # Build results using pre-loaded data
-            results = []
             for hit in hits:
                 entity_id = hit['entity'].id
                 entity = column_map.get(entity_id, hit['entity'])
                 # Get table slug from pre-loaded relationship (no additional query)
-                table_slug = entity.table.slug if entity.table else None
+                table_slug_val = entity.table.slug if entity.table else None
                 # Create result with all fields
                 result_dict = {
                     'id': entity.id,
                     'table_id': entity.table_id,
-                    'table_slug': table_slug,
+                    'table_slug': table_slug_val,
                     'slug': entity.slug,
                     'name': entity.name,
                     'semantic_name': entity.semantic_name,
@@ -294,57 +397,77 @@ class SearchService:
                     'created_at': entity.created_at,
                     'updated_at': entity.updated_at
                 }
-                results.append(ColumnSearchResult(**result_dict))
-            return results
-        return []
+                items.append(ColumnSearchResult(**result_dict))
+        
+        return self._build_paginated_response(items, total, page, limit)
 
     # -------------------------------------------------------------------------
     # 5. Edges (Custom Implementation - No SearchableMixin)
     # -------------------------------------------------------------------------
-    def search_edges(self, query: str, datasource_slug: Optional[str], table_slug: Optional[str] = None, limit: int = 10) -> List[EdgeSearchResult]:
-        # Start generic query: Join Source Column -> Source Table AND Target Column -> Target Table
-        # We need aliases if we join TableNode twice? 
-        # Actually, simpler: just join source column/table and then check conditions.
-        # But if we want to support "edges involving table X (either as source or target)", we need deeper filtering.
-        
+    # -------------------------------------------------------------------------
+    # 5. Edges
+    # -------------------------------------------------------------------------
+    def search_edges(
+        self, 
+        query: str, 
+        datasource_slug: Optional[str], 
+        table_slug: Optional[str] = None, 
+        page: int = 1,
+        limit: int = 10
+    ) -> PaginatedResponse[EdgeSearchResult]:
+        """
+        Search edges (relationships) with optional filters using hybrid search.
+        """
+        filters = {}
+        base_stmt = None
+        from sqlalchemy import select
         from sqlalchemy.orm import aliased
         
+        # Aliases for better joining
         SourceCol = aliased(ColumnNode)
         TargetCol = aliased(ColumnNode)
         SourceTable = aliased(TableNode)
         TargetTable = aliased(TableNode)
         
-        stmt = self.db.query(SchemaEdge).\
+        # Base statement with all necessary joins
+        # This allows us to filter by datasource and table even in hybrid search
+        base_stmt = select(SchemaEdge).\
             join(SourceCol, SchemaEdge.source_column_id == SourceCol.id).\
             join(SourceTable, SourceCol.table_id == SourceTable.id).\
             join(TargetCol, SchemaEdge.target_column_id == TargetCol.id).\
             join(TargetTable, TargetCol.table_id == TargetTable.id)
-        
+            
         if datasource_slug:
-            ds = self.db.query(Datasource).filter(Datasource.slug == datasource_slug).first()
-            if not ds:
-                return []
-            stmt = stmt.filter(SourceTable.datasource_id == ds.id)
+            ds_id = self._resolve_datasource_id(datasource_slug)
+            if not ds_id:
+                return self._build_paginated_response([], 0, page, limit)
+            # Filter where source table belongs to datasource
+            base_stmt = base_stmt.where(SourceTable.datasource_id == ds_id)
                 
         if table_slug:
             # Filter edges where EITHER source OR target table matches the slug
-            stmt = stmt.filter(or_(
+            base_stmt = base_stmt.where(or_(
                 SourceTable.slug == table_slug,
                 TargetTable.slug == table_slug
             ))
 
-        if query:
-            # Simple ILIKE on description
-            stmt = stmt.filter(SchemaEdge.description.ilike(f"%{query}%"))
-            
-        results = stmt.limit(limit).all()
+        # Perform hybrid search
+        # Note: filters={} because we applied filters directly to base_stmt which handles the complex logic
+        offset = (page - 1) * limit
+        hits, total = self._generic_search(SchemaEdge, query, {}, limit, offset, base_stmt=base_stmt)
         
-        output = []
-        for edge in results:
+        items = []
+        for hit in hits:
+            edge = hit['entity']
             # Lazy loading will fetch related columns and tables
             # Format: table.column (flattened for convenience)
-            src = f"{edge.source_column.table.slug}.{edge.source_column.slug}"
-            tgt = f"{edge.target_column.table.slug}.{edge.target_column.slug}"
+            try:
+                src = f"{edge.source_column.table.slug}.{edge.source_column.slug}"
+                tgt = f"{edge.target_column.table.slug}.{edge.target_column.slug}"
+            except AttributeError:
+                # Handle cases where relations might be missing/deleted (defensive)
+                src = "unknown.unknown"
+                tgt = "unknown.unknown"
             
             # Create result with all fields
             result_dict = {
@@ -359,24 +482,32 @@ class SearchService:
                 'context_note': getattr(edge, 'context_note', None),
                 'created_at': edge.created_at
             }
-            output.append(EdgeSearchResult(**result_dict))
-        return output
+            items.append(EdgeSearchResult(**result_dict))
+        
+        return self._build_paginated_response(items, total, page, limit)
 
     # -------------------------------------------------------------------------
     # 6. Metrics
     # -------------------------------------------------------------------------
-    def search_metrics(self, query: str, datasource_slug: Optional[str], limit: int = 10) -> List[MetricSearchResult]:
+    def search_metrics(
+        self, 
+        query: str, 
+        datasource_slug: Optional[str], 
+        page: int = 1,
+        limit: int = 10
+    ) -> PaginatedResponse[MetricSearchResult]:
         """
         Search metrics with optional filter by datasource.
         
         Args:
             query: Search query string
             datasource_slug: Optional filter by datasource slug
-            limit: Maximum number of results
+            page: Page number (1-indexed)
+            limit: Maximum number of results per page
         
         Returns:
-            List of MetricSearchResult matching the query and filters.
-            Returns empty list if datasource_slug is provided but not found.
+            PaginatedResponse with MetricSearchResult items.
+            Returns empty paginated response if datasource_slug is provided but not found.
         """
         filters = {}
         base_stmt = None
@@ -385,33 +516,67 @@ class SearchService:
         if datasource_slug:
             ds_id = self._resolve_datasource_id(datasource_slug)
             if not ds_id:
-                # Datasource not found -> return empty list
-                return []
+                return self._build_paginated_response([], 0, page, limit)
             # Create base_stmt to explicitly filter by datasource_id and exclude NULL
-            # This ensures metrics without datasource_id are not included in results
-            # We use base_stmt instead of filters to have more control over the WHERE clause
-            # and to explicitly exclude NULL values (which col == value should do, but this is safer)
             base_stmt = select(SemanticMetric).where(
                 SemanticMetric.datasource_id == ds_id,
-                SemanticMetric.datasource_id.isnot(None)  # Explicitly exclude NULL values
+                SemanticMetric.datasource_id.isnot(None)
             )
-            # Don't add to filters since we're using base_stmt (filters would be redundant)
         
-        hits = self._generic_search(SemanticMetric, query, filters, limit, base_stmt=base_stmt)
-        results = []
+        offset = (page - 1) * limit
+        hits, total = self._generic_search(SemanticMetric, query, filters, limit, offset, base_stmt=base_stmt)
+        
+        items = []
+
+        # 1. First pass: Collect all IDs needing resolution
+        all_required_ids = set()
+        
+        # Temp list to hold entities before converting to DTOs
+        temp_entities = []
+
         for hit in hits:
             entity = hit['entity']
-            # Parse required_tables from JSON if present
-            required_tables = None
+            # Parse IDs
+            r_ids = []
             if entity.required_tables:
                 if isinstance(entity.required_tables, list):
-                    required_tables = entity.required_tables
+                    r_ids = entity.required_tables
                 elif isinstance(entity.required_tables, str):
                     try:
-                        required_tables = json.loads(entity.required_tables)
+                        parsed = json.loads(entity.required_tables)
+                        if isinstance(parsed, list):
+                            r_ids = parsed
+                        else:
+                            r_ids = [parsed]
                     except:
-                        required_tables = [entity.required_tables]
+                        r_ids = [entity.required_tables]
             
+            # Clean and collect IDs
+            clean_ids = []
+            for rid in r_ids:
+                try:
+                    # Validate it's a UUID
+                    # Convert to string first to handle UUID objects if already present
+                    rid_str = str(rid)
+                    uuid_obj = UUID(rid_str)
+                    all_required_ids.add(uuid_obj)
+                    clean_ids.append(uuid_obj)
+                except:
+                    pass
+            
+            temp_entities.append((entity, clean_ids))
+
+        # 2. Batch resolve IDs to Slugs
+        id_to_slug_map = {}
+        if all_required_ids:
+            tables = self.db.query(TableNode).filter(TableNode.id.in_(all_required_ids)).all()
+            id_to_slug_map = {t.id: t.slug for t in tables}
+
+        # 3. Build final DTOs
+        for entity, clean_ids in temp_entities:
+            # Convert IDs to Slugs
+            resolved_slugs = [id_to_slug_map.get(tid, str(tid)) for tid in clean_ids]
+
             result_dict = {
                 'id': entity.id,
                 'datasource_id': entity.datasource_id,
@@ -419,23 +584,31 @@ class SearchService:
                 'name': entity.name,
                 'description': entity.description,
                 'calculation_sql': entity.calculation_sql,
-                'required_tables': required_tables,
+                'required_tables': resolved_slugs,
                 'filter_condition': entity.filter_condition,
                 'created_at': entity.created_at,
                 'updated_at': entity.updated_at
             }
-            results.append(MetricSearchResult(**result_dict))
-        return results
+            items.append(MetricSearchResult(**result_dict))
+            
+        return self._build_paginated_response(items, total, page, limit)
 
     # -------------------------------------------------------------------------
     # 7. Synonyms
     # -------------------------------------------------------------------------
-    def search_synonyms(self, query: str, datasource_slug: Optional[str], limit: int = 10) -> List[SynonymSearchResult]:
-        """Search synonyms and return complete information with resolved target slugs."""
-        hits = self._generic_search(SemanticSynonym, query, {}, limit)
+    def search_synonyms(
+        self, 
+        query: str, 
+        datasource_slug: Optional[str], 
+        page: int = 1,
+        limit: int = 10
+    ) -> PaginatedResponse[SynonymSearchResult]:
+        """Search synonyms and return paginated results with resolved target slugs."""
+        offset = (page - 1) * limit
+        hits, total = self._generic_search(SemanticSynonym, query, {}, limit, offset)
         
         if not hits:
-            return []
+            return self._build_paginated_response([], total, page, limit)
         
         # Batch load all target entities to avoid N+1 queries
         # Group synonyms by target_type and collect IDs
@@ -478,7 +651,7 @@ class SearchService:
             value_map = {v.id: v.slug for v in values}
         
         # Build results using batch-loaded data
-        results = []
+        items = []
         for hit in hits:
             entity = hit['entity']
             # Resolve target slug from batch-loaded maps
@@ -505,13 +678,21 @@ class SearchService:
                 'maps_to_slug': maps_to_slug,
                 'created_at': entity.created_at
             }
-            results.append(SynonymSearchResult(**result_dict))
-        return results
+            items.append(SynonymSearchResult(**result_dict))
+        
+        return self._build_paginated_response(items, total, page, limit)
 
     # -------------------------------------------------------------------------
     # 8. Context Rules
     # -------------------------------------------------------------------------
-    def search_context_rules(self, query: str, datasource_slug: Optional[str], table_slug: Optional[str], limit: int = 10) -> List[ContextRuleSearchResult]:
+    def search_context_rules(
+        self, 
+        query: str, 
+        datasource_slug: Optional[str], 
+        table_slug: Optional[str], 
+        page: int = 1,
+        limit: int = 10
+    ) -> PaginatedResponse[ContextRuleSearchResult]:
         filters = {}
         base_stmt = None
         from sqlalchemy import select
@@ -520,37 +701,41 @@ class SearchService:
         if datasource_slug:
             ds_id = self._resolve_datasource_id(datasource_slug)
             if not ds_id:
-                return []
+                return self._build_paginated_response([], 0, page, limit)
 
         if table_slug:
-            # Need ds_id to resolve table reliably usually, but if we trust unique slug:
-            # But let's verify context.
             if ds_id:
                  table_id = self._resolve_table_id(ds_id, table_slug)
                  if not table_id:
-                     return []
+                     return self._build_paginated_response([], 0, page, limit)
                  base_stmt = select(ColumnContextRule).join(ColumnNode).where(ColumnNode.table_id == table_id)
             else:
-                 # If no DS, we should probably fail or search global?
-                 # Consistent behavior: if table filter requested but resolution fails (requires DS context usually):
-                 # For now, if no DS provided, try global resolution of table?
-                 # Implementation detail: _resolve_table_id requires ds_id.
-                 # Let's enforce DS for table filter or fail if ambiguous?
-                 # To be safe and strict:
-                 return [] # Cannot resolve table without DS context in current architecture
+                 return self._build_paginated_response([], 0, page, limit)  # Cannot resolve table without DS context
         elif ds_id:
              base_stmt = select(ColumnContextRule).join(ColumnNode).join(TableNode).where(TableNode.datasource_id == ds_id)
 
-        hits = self._generic_search(ColumnContextRule, query, filters, limit, base_stmt=base_stmt)
-        return [
+        offset = (page - 1) * limit
+        hits, total = self._generic_search(ColumnContextRule, query, filters, limit, offset, base_stmt=base_stmt)
+        
+        items = [
             ContextRuleSearchResult.model_validate(hit['entity'])
             for hit in hits
         ]
+        
+        return self._build_paginated_response(items, total, page, limit)
 
     # -------------------------------------------------------------------------
     # 9. Low Cardinality Values
     # -------------------------------------------------------------------------
-    def search_low_cardinality_values(self, query: str, datasource_slug: Optional[str], table_slug: Optional[str], column_slug: Optional[str], limit: int = 10) -> List[LowCardinalityValueSearchResult]:
+    def search_low_cardinality_values(
+        self, 
+        query: str, 
+        datasource_slug: Optional[str], 
+        table_slug: Optional[str], 
+        column_slug: Optional[str], 
+        page: int = 1,
+        limit: int = 10
+    ) -> PaginatedResponse[LowCardinalityValueSearchResult]:
         filters = {}
         base_stmt = None
         from sqlalchemy import select
@@ -559,26 +744,36 @@ class SearchService:
         if datasource_slug:
             ds_id = self._resolve_datasource_id(datasource_slug)
             if not ds_id:
-                return []
+                return self._build_paginated_response([], 0, page, limit)
         
-        if ds_id and table_slug:
-             table_id = self._resolve_table_id(ds_id, table_slug)
-             if not table_id:
-                 return []
-             
+        table_id = None
+        if table_slug:
+            # Table slug is unique, resolve directly
+            table_node = self.db.query(TableNode).filter(TableNode.slug == table_slug).first()
+            if not table_node:
+                return self._build_paginated_response([], 0, page, limit)
+            
+            # If datasource specified, verify consistency
+            if ds_id and table_node.datasource_id != ds_id:
+                 return self._build_paginated_response([], 0, page, limit)
+            table_id = table_node.id
+        
+        if table_id:
              if column_slug:
                  col_id = self._resolve_column_id(table_id, column_slug)
                  if not col_id:
-                     return []
+                     return self._build_paginated_response([], 0, page, limit)
                  filters['column_id'] = col_id
              else:
                  base_stmt = select(LowCardinalityValue).join(ColumnNode).where(ColumnNode.table_id == table_id)
         elif ds_id:
              base_stmt = select(LowCardinalityValue).join(ColumnNode).join(TableNode).where(TableNode.datasource_id == ds_id)
 
-        hits = self._generic_search(LowCardinalityValue, query, filters, limit, base_stmt=base_stmt)
+        offset = (page - 1) * limit
+        hits, total = self._generic_search(LowCardinalityValue, query, filters, limit, offset, base_stmt=base_stmt)
         
         # Pre-load column and table relationships to avoid N+1 queries
+        items = []
         if hits:
             value_ids = [hit['entity'].id for hit in hits]
             # Use selectinload to eagerly load column and table relationships
@@ -590,74 +785,73 @@ class SearchService:
             value_map = {v.id: v for v in values_with_relations}
             
             # Build results using pre-loaded data
-            results = []
             for hit in hits:
                 entity_id = hit['entity'].id
                 entity = value_map.get(entity_id, hit['entity'])
                 # Get slugs from pre-loaded relationships (no additional queries)
-                column_slug = entity.column.slug if entity.column else None
-                table_slug = entity.column.table.slug if entity.column and entity.column.table else None
+                column_slug_val = entity.column.slug if entity.column else None
+                table_slug_val = entity.column.table.slug if entity.column and entity.column.table else None
                 
                 result_dict = {
                     'id': entity.id,
                     'column_id': entity.column_id,
-                    'column_slug': column_slug,
-                    'table_slug': table_slug,
+                    'column_slug': column_slug_val,
+                    'table_slug': table_slug_val,
                     'value_raw': entity.value_raw,
                     'value_label': entity.value_label,
                     'created_at': entity.created_at,
                     'updated_at': entity.updated_at
                 }
-                results.append(LowCardinalityValueSearchResult(**result_dict))
-            return results
-        return []
+                items.append(LowCardinalityValueSearchResult(**result_dict))
+        
+        return self._build_paginated_response(items, total, page, limit)
 
 
 # =============================================================================
 # API ENDPOINTS
 # =============================================================================
 
-@router.post("/datasources", response_model=List[DatasourceSearchResult])
+@router.post("/datasources", response_model=PaginatedDatasourceResponse)
 def search_datasources(request: DiscoverySearchRequest, db: Session = Depends(get_db)):
     service = SearchService(db)
-    return service.search_datasources(request.query, request.limit)
+    return service.search_datasources(request.query, request.page, request.limit)
 
-@router.post("/golden_sql", response_model=List[GoldenSQLResult])
+@router.post("/golden_sql", response_model=PaginatedGoldenSQLResponse)
 def search_golden_sql(request: GoldenSQLSearchRequest, db: Session = Depends(get_db)):
     service = SearchService(db)
-    return service.search_golden_sql(request.query, request.datasource_slug, request.limit)
+    return service.search_golden_sql(request.query, request.datasource_slug, request.page, request.limit)
 
-@router.post("/tables", response_model=List[TableSearchResult])
+@router.post("/tables", response_model=PaginatedTableResponse)
 def search_tables(request: TableSearchRequest, db: Session = Depends(get_db)):
     service = SearchService(db)
-    return service.search_tables(request.query, request.datasource_slug, request.limit)
+    return service.search_tables(request.query, request.datasource_slug, request.page, request.limit)
 
-@router.post("/columns", response_model=List[ColumnSearchResult])
+@router.post("/columns", response_model=PaginatedColumnResponse)
 def search_columns(request: ColumnSearchRequest, db: Session = Depends(get_db)):
     service = SearchService(db)
-    return service.search_columns(request.query, request.datasource_slug, request.table_slug, request.limit)
+    return service.search_columns(request.query, request.datasource_slug, request.table_slug, request.page, request.limit)
 
-@router.post("/edges", response_model=List[EdgeSearchResult])
+@router.post("/edges", response_model=PaginatedEdgeResponse)
 def search_edges(request: EdgeSearchRequest, db: Session = Depends(get_db)):
     service = SearchService(db)
-    return service.search_edges(request.query, request.datasource_slug, request.table_slug, request.limit)
+    return service.search_edges(request.query, request.datasource_slug, request.table_slug, request.page, request.limit)
 
-@router.post("/metrics", response_model=List[MetricSearchResult])
+@router.post("/metrics", response_model=PaginatedMetricResponse)
 def search_metrics(request: MetricSearchRequest, db: Session = Depends(get_db)):
     service = SearchService(db)
-    return service.search_metrics(request.query, request.datasource_slug, request.limit)
+    return service.search_metrics(request.query, request.datasource_slug, request.page, request.limit)
 
-@router.post("/synonyms", response_model=List[SynonymSearchResult])
+@router.post("/synonyms", response_model=PaginatedSynonymResponse)
 def search_synonyms(request: SynonymSearchRequest, db: Session = Depends(get_db)):
     service = SearchService(db)
-    return service.search_synonyms(request.query, request.datasource_slug, request.limit)
+    return service.search_synonyms(request.query, request.datasource_slug, request.page, request.limit)
 
-@router.post("/context_rules", response_model=List[ContextRuleSearchResult])
+@router.post("/context_rules", response_model=PaginatedContextRuleResponse)
 def search_context_rules(request: ContextRuleSearchRequest, db: Session = Depends(get_db)):
     service = SearchService(db)
-    return service.search_context_rules(request.query, request.datasource_slug, request.table_slug, request.limit)
+    return service.search_context_rules(request.query, request.datasource_slug, request.table_slug, request.page, request.limit)
 
-@router.post("/low_cardinality_values", response_model=List[LowCardinalityValueSearchResult])
+@router.post("/low_cardinality_values", response_model=PaginatedLowCardinalityValueResponse)
 def search_low_cardinality_values(request: LowCardinalityValueSearchRequest, db: Session = Depends(get_db)):
     service = SearchService(db)
-    return service.search_low_cardinality_values(request.query, request.datasource_slug, request.table_slug, request.column_slug, request.limit)
+    return service.search_low_cardinality_values(request.query, request.datasource_slug, request.table_slug, request.column_slug, request.page, request.limit)

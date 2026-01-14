@@ -96,7 +96,15 @@ import { JsonPipe } from '@angular/common';
                   <div class="space-y-1">
                      <label class="text-xs font-mono text-gray-500 uppercase tracking-wider ml-1">Limit</label>
                      <mat-form-field appearance="outline" class="w-full custom-dark-field">
-                       <input matInput type="number" [(ngModel)]="limit" min="1" max="100">
+                       <input matInput type="number" [(ngModel)]="limit" min="1" max="100" (change)="onLimitChange()">
+                     </mat-form-field>
+                  </div>
+
+                  <!-- Page (only show if pagination is available) -->
+                  <div class="space-y-1" *ngIf="hasSearched() && pagination()">
+                     <label class="text-xs font-mono text-gray-500 uppercase tracking-wider ml-1">Page</label>
+                     <mat-form-field appearance="outline" class="w-full custom-dark-field">
+                       <input matInput type="number" [(ngModel)]="page" [min]="1" [max]="pagination()!.total_pages" (change)="goToPage(page())">
                      </mat-form-field>
                   </div>
 
@@ -161,7 +169,10 @@ import { JsonPipe } from '@angular/common';
                      <span *ngIf="hasSearched()" class="bg-green-500/10 text-green-400 text-xs px-2 py-0.5 rounded border border-green-500/20 font-mono">
                         {{ resultTime() }}ms
                      </span>
-                     <span *ngIf="hasSearched()" class="bg-blue-500/10 text-blue-400 text-xs px-2 py-0.5 rounded border border-blue-500/20 font-mono">
+                     <span *ngIf="hasSearched() && pagination()" class="bg-blue-500/10 text-blue-400 text-xs px-2 py-0.5 rounded border border-blue-500/20 font-mono">
+                        {{ pagination()!.total }} total
+                     </span>
+                     <span *ngIf="hasSearched() && !pagination()" class="bg-blue-500/10 text-blue-400 text-xs px-2 py-0.5 rounded border border-blue-500/20 font-mono">
                         {{ results().length }} hits
                      </span>
                   </div>
@@ -171,6 +182,34 @@ import { JsonPipe } from '@angular/common';
                      </button>
                      <button mat-icon-button class="!text-gray-500 hover:!text-white transition-colors" matTooltip="Clear" (click)="clearResults()">
                         <mat-icon class="text-sm">delete_outline</mat-icon>
+                     </button>
+                  </div>
+               </div>
+
+               <!-- Pagination Controls -->
+               <div *ngIf="pagination() && pagination()!.total_pages > 1" class="px-6 py-3 border-b border-white/5 bg-[#0d1218] flex items-center justify-between">
+                  <div class="flex items-center gap-2 text-sm text-gray-400">
+                     <span>Page {{ pagination()!.page }} of {{ pagination()!.total_pages }}</span>
+                     <span class="text-gray-600">•</span>
+                     <span>{{ pagination()!.total }} total results</span>
+                     <span class="text-gray-600">•</span>
+                     <span>{{ pagination()!.limit }} per page</span>
+                  </div>
+                  <div class="flex items-center gap-2">
+                     <button mat-icon-button 
+                        [disabled]="!pagination()!.has_prev" 
+                        (click)="prevPage()"
+                        class="!text-gray-500 hover:!text-white disabled:!opacity-30 disabled:!cursor-not-allowed transition-colors"
+                        matTooltip="Previous page">
+                        <mat-icon>chevron_left</mat-icon>
+                     </button>
+                     <span class="text-sm text-gray-400 px-3 font-mono">{{ pagination()!.page }} / {{ pagination()!.total_pages }}</span>
+                     <button mat-icon-button 
+                        [disabled]="!pagination()!.has_next" 
+                        (click)="nextPage()"
+                        class="!text-gray-500 hover:!text-white disabled:!opacity-30 disabled:!cursor-not-allowed transition-colors"
+                        matTooltip="Next page">
+                        <mat-icon>chevron_right</mat-icon>
                      </button>
                   </div>
                </div>
@@ -302,8 +341,10 @@ export class RetrievalPlaygroundComponent {
     tableSlug = signal<string>('');
     columnSlug = signal<string>('');
     limit = signal<number>(10);
+    page = signal<number>(1);
 
     results = signal<any[]>([]);
+    pagination = signal<{ total: number; page: number; limit: number; has_next: boolean; has_prev: boolean; total_pages: number } | null>(null);
     loading = signal<boolean>(false);
     error = signal<string | null>(null);
     hasSearched = signal<boolean>(false);
@@ -311,8 +352,10 @@ export class RetrievalPlaygroundComponent {
 
     clearResults() {
         this.results.set([]);
+        this.pagination.set(null);
         this.error.set(null);
         this.hasSearched.set(false);
+        this.page.set(1);
     }
 
     copyResults() {
@@ -329,6 +372,7 @@ export class RetrievalPlaygroundComponent {
         const ep = this.selectedEndpoint();
         const baseReq = {
             query: this.query(),
+            page: this.page(),
             limit: this.limit()
         };
 
@@ -370,7 +414,22 @@ export class RetrievalPlaygroundComponent {
 
         obs.subscribe({
             next: (data) => {
-                this.results.set(data);
+                // Handle paginated response
+                if (data && 'items' in data) {
+                    this.results.set(data.items);
+                    this.pagination.set({
+                        total: data.total,
+                        page: data.page,
+                        limit: data.limit,
+                        has_next: data.has_next,
+                        has_prev: data.has_prev,
+                        total_pages: data.total_pages
+                    });
+                } else {
+                    // Fallback for non-paginated responses (backward compatibility)
+                    this.results.set(Array.isArray(data) ? data : []);
+                    this.pagination.set(null);
+                }
                 this.resultTime.set(Math.round(performance.now() - start));
                 this.hasSearched.set(true);
                 this.loading.set(false);
@@ -382,4 +441,36 @@ export class RetrievalPlaygroundComponent {
             }
         });
     }
-}
+
+    nextPage() {
+        if (this.pagination()?.has_next) {
+            this.page.set(this.page() + 1);
+            this.search();
+        }
+    }
+
+    prevPage() {
+        if (this.pagination()?.has_prev) {
+            this.page.set(this.page() - 1);
+            this.search();
+        }
+    }
+
+    goToPage(pageNum: number) {
+        const pag = this.pagination();
+        if (pag && pageNum >= 1 && pageNum <= pag.total_pages) {
+            this.page.set(pageNum);
+            this.search();
+        }
+    }
+
+    onLimitChange() {
+        // Reset to page 1 when limit changes
+        this.page.set(1);
+        // Optionally auto-search when limit changes
+        if (this.hasSearched()) {
+            this.search();
+        }
+    }
+    }
+

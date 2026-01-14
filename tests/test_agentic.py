@@ -128,10 +128,10 @@ def agentic_seed(db_session, sample_datasource):
     # Edges (relationships)
     edge_ord_cli = SchemaEdge(
         id=uuid4(),
-        source_column_id=col_cliente_id.id,
-        target_column_id=col_cli_id.id,
-        relationship_type=RelationshipType.MANY_TO_ONE,
-        description="Ordine appartiene a Cliente",
+        source_column_id=col_cli_id.id,
+        target_column_id=col_cliente_id.id,
+        relationship_type=RelationshipType.ONE_TO_MANY,
+        description="Cliente ha molti Ordini",
         is_inferred=False
     )
     
@@ -251,10 +251,14 @@ class TestDiscoveryEndpoints:
         response = client.post(f"{PREFIX}/datasources", json={"query": "test"})
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        assert isinstance(data, list)
-        assert len(data) > 0
-        assert "slug" in data[0]
-        assert "name" in data[0]
+        assert "items" in data
+        assert "total" in data
+        assert "page" in data
+        assert "limit" in data
+        assert isinstance(data["items"], list)
+        assert len(data["items"]) > 0
+        assert "slug" in data["items"][0]
+        assert "name" in data["items"][0]
     
     def test_search_tables(self, client, agentic_seed):
         """Test table search with datasource filter"""
@@ -264,11 +268,12 @@ class TestDiscoveryEndpoints:
         })
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        assert len(data) > 0
-        assert any(t["slug"] == "ordini_table" for t in data)
+        assert "items" in data
+        assert len(data["items"]) > 0
+        assert any(t["slug"] == "ordini_table" for t in data["items"])
         
         # Verify response structure
-        table = data[0]
+        table = data["items"][0]
         assert "id" in table
         assert "slug" in table
         assert "semantic_name" in table
@@ -279,7 +284,8 @@ class TestDiscoveryEndpoints:
         response = client.post(f"{PREFIX}/tables", json={"query": "prodotti"})
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        assert len(data) > 0
+        assert "items" in data
+        assert len(data["items"]) > 0
     
     def test_search_columns(self, client, agentic_seed):
         """Test column search with multiple filters"""
@@ -291,11 +297,12 @@ class TestDiscoveryEndpoints:
         })
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        assert len(data) > 0
-        assert any(c["slug"] == "importo_totale_col" for c in data)
+        assert "items" in data
+        assert len(data["items"]) > 0
+        assert any(c["slug"] == "importo_totale_col" for c in data["items"])
         
         # Verify response includes table_slug
-        column = data[0]
+        column = data["items"][0]
         assert "table_slug" in column
         assert "slug" in column
         assert "name" in column
@@ -309,7 +316,8 @@ class TestDiscoveryEndpoints:
         })
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        assert len(data) > 0
+        assert "items" in data
+        assert len(data["items"]) > 0
     
     def test_search_edges(self, client, agentic_seed):
         """Test edge/relationship search"""
@@ -319,10 +327,11 @@ class TestDiscoveryEndpoints:
         })
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        assert isinstance(data, list)
+        assert "items" in data
+        assert isinstance(data["items"], list)
         # Verify response structure
-        if len(data) > 0:
-            edge = data[0]
+        if len(data["items"]) > 0:
+            edge = data["items"][0]
             assert "id" in edge
             assert "source" in edge
             assert "target" in edge
@@ -337,7 +346,8 @@ class TestDiscoveryEndpoints:
         })
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        assert isinstance(data, list)
+        assert "items" in data
+        assert isinstance(data["items"], list)
     
     def test_search_metrics(self, client, agentic_seed):
         """Test metric search"""
@@ -347,8 +357,9 @@ class TestDiscoveryEndpoints:
         })
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        assert len(data) > 0
-        metric = data[0]
+        assert "items" in data
+        assert len(data["items"]) > 0
+        metric = data["items"][0]
         assert "id" in metric
         assert "slug" in metric
         assert "name" in metric
@@ -359,8 +370,9 @@ class TestDiscoveryEndpoints:
         response = client.post(f"{PREFIX}/synonyms", json={"query": "ordini"})
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        assert len(data) > 0
-        synonym = data[0]
+        assert "items" in data
+        assert len(data["items"]) > 0
+        synonym = data["items"][0]
         assert "term" in synonym
         assert "target_type" in synonym
         assert "maps_to_slug" in synonym
@@ -373,8 +385,9 @@ class TestDiscoveryEndpoints:
         })
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        assert len(data) > 0
-        golden = data[0]
+        assert "items" in data
+        assert len(data["items"]) > 0
+        golden = data["items"][0]
         assert "id" in golden
         assert "prompt" in golden
         assert "sql" in golden
@@ -391,9 +404,10 @@ class TestDiscoveryEndpoints:
         })
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        assert isinstance(data, list)
-        if len(data) > 0:
-            rule = data[0]
+        assert "items" in data
+        assert isinstance(data["items"], list)
+        if len(data["items"]) > 0:
+            rule = data["items"][0]
             assert "id" in rule
             assert "rule_text" in rule
     
@@ -406,8 +420,9 @@ class TestDiscoveryEndpoints:
         })
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        assert len(data) > 0
-        value = data[0]
+        assert "items" in data
+        assert len(data["items"]) > 0
+        value = data["items"][0]
         assert "value_raw" in value
         # value_label is optional in schema, but our seed data includes it
         if "value_label" in value:
@@ -438,8 +453,9 @@ class TestAgentWorkflow:
         # Step 1: Find datasource
         ds_resp = client.post(f"{PREFIX}/datasources", json={"query": "test"})
         assert ds_resp.status_code == status.HTTP_200_OK
-        datasources = ds_resp.json()
-        assert len(datasources) > 0
+        datasources_data = ds_resp.json()
+        assert "items" in datasources_data
+        assert len(datasources_data["items"]) > 0
         
         # Step 2: Find tables for "ordini" query
         tables_resp = client.post(f"{PREFIX}/tables", json={
@@ -447,7 +463,9 @@ class TestAgentWorkflow:
             "datasource_slug": ds_slug
         })
         assert tables_resp.status_code == status.HTTP_200_OK
-        tables = tables_resp.json()
+        tables_data = tables_resp.json()
+        assert "items" in tables_data
+        tables = tables_data["items"]
         assert len(tables) > 0
         ordini_table = next((t for t in tables if t["slug"] == "ordini_table"), None)
         assert ordini_table is not None
@@ -459,7 +477,9 @@ class TestAgentWorkflow:
             "table_slug": "ordini_table"
         })
         assert columns_resp.status_code == status.HTTP_200_OK
-        columns = columns_resp.json()
+        columns_data = columns_resp.json()
+        assert "items" in columns_data
+        columns = columns_data["items"]
         assert len(columns) > 0
         importo_col = next((c for c in columns if "importo" in c["slug"]), None)
         assert importo_col is not None
@@ -471,7 +491,9 @@ class TestAgentWorkflow:
             "table_slug": "ordini_table"
         })
         assert edges_resp.status_code == status.HTTP_200_OK
-        edges = edges_resp.json()
+        edges_data = edges_resp.json()
+        assert "items" in edges_data
+        edges = edges_data["items"]
         assert isinstance(edges, list)
         
         # Step 5: Find metrics
@@ -480,7 +502,9 @@ class TestAgentWorkflow:
             "datasource_slug": ds_slug
         })
         assert metrics_resp.status_code == status.HTTP_200_OK
-        metrics = metrics_resp.json()
+        metrics_data = metrics_resp.json()
+        assert "items" in metrics_data
+        metrics = metrics_data["items"]
         assert len(metrics) > 0
         
         # Step 6: Find golden SQL examples
@@ -489,7 +513,9 @@ class TestAgentWorkflow:
             "datasource_slug": ds_slug
         })
         assert golden_resp.status_code == status.HTTP_200_OK
-        golden_sqls = golden_resp.json()
+        golden_data = golden_resp.json()
+        assert "items" in golden_data
+        golden_sqls = golden_data["items"]
         assert len(golden_sqls) > 0
         
         # Verify workflow coherence
@@ -512,7 +538,9 @@ class TestAgentWorkflow:
             "query": "prodotti",
             "datasource_slug": ds_slug
         })
-        tables = tables_resp.json()
+        tables_data = tables_resp.json()
+        assert "items" in tables_data
+        tables = tables_data["items"]
         assert len(tables) > 0
         
         # Step 2: Search golden SQL for similar queries
@@ -520,7 +548,9 @@ class TestAgentWorkflow:
             "query": "prodotti quasi finiti",
             "datasource_slug": ds_slug
         })
-        golden_sqls = golden_resp.json()
+        golden_data = golden_resp.json()
+        assert "items" in golden_data
+        golden_sqls = golden_data["items"]
         assert len(golden_sqls) > 0
         
         # Verify the golden SQL is relevant (should find at least one result)
@@ -563,13 +593,15 @@ class TestPerformance:
             
             assert response.status_code == status.HTTP_200_OK
             data = response.json()
+            assert "items" in data
             
             # With optimization, we should have:
             # 1. Main search query (vector + FTS)
-            # 2. Batch load query for relationships
+            # 2. Count query for pagination
+            # 3. Batch load query for relationships
             # Not N queries for N results
-            # Allow up to 10 queries to account for search complexity
-            assert query_count["select"] <= 10, f"Too many queries ({query_count['select']}). N+1 query problem detected!"
+            # Allow up to 15 queries to account for search complexity and count query
+            assert query_count["select"] <= 15, f"Too many queries ({query_count['select']}). N+1 query problem detected!"
         finally:
             # Remove event listener
             event.remove(db_session.bind, "after_cursor_execute", receive_after_cursor_execute)
@@ -593,10 +625,11 @@ class TestPerformance:
             
             assert response.status_code == status.HTTP_200_OK
             data = response.json()
+            assert "items" in data
             
             # Should use batch loading, not N+1
-            # Allow up to 10 queries to account for search complexity and batch loads
-            assert query_count["select"] <= 10, f"Too many queries ({query_count['select']}). N+1 query problem detected!"
+            # Allow up to 15 queries to account for search complexity, count query, and batch loads
+            assert query_count["select"] <= 15, f"Too many queries ({query_count['select']}). N+1 query problem detected!"
         finally:
             # Remove event listener
             event.remove(db_session.bind, "after_cursor_execute", receive_after_cursor_execute)
@@ -643,9 +676,10 @@ class TestMultilingual:
         })
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        assert len(data) > 0
+        assert "items" in data
+        assert len(data["items"]) > 0
         # Should find "ordini_table" which has Italian description
-        assert any("ordini" in t["slug"] for t in data)
+        assert any("ordini" in t["slug"] for t in data["items"])
     
     def test_italian_golden_sql_search(self, client, agentic_seed):
         """Test searching golden SQL with Italian query"""
@@ -655,11 +689,12 @@ class TestMultilingual:
         })
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        assert len(data) > 0
+        assert "items" in data
+        assert len(data["items"]) > 0
         
         # Verify results are relevant (should find the Italian golden SQL)
         relevant_results = [
-            g for g in data 
+            g for g in data["items"]
             if any(term in g["prompt"].lower() for term in ["prodotti", "quasi", "finiti"])
         ]
         assert len(relevant_results) > 0, "Should find relevant results for Italian query"
@@ -672,7 +707,8 @@ class TestMultilingual:
         })
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        assert len(data) > 0
+        assert "items" in data
+        assert len(data["items"]) > 0
 
 
 # =============================================================================
@@ -691,8 +727,9 @@ class TestCombinedFilters:
         })
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
+        assert "items" in data
         # All results should be from ordini_table
-        assert all(c["table_slug"] == "ordini_table" for c in data)
+        assert all(c["table_slug"] == "ordini_table" for c in data["items"])
     
     def test_nonexistent_datasource_filter(self, client):
         """Test that nonexistent datasource returns empty results"""
@@ -702,7 +739,9 @@ class TestCombinedFilters:
         })
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        assert len(data) == 0
+        assert "items" in data
+        assert len(data["items"]) == 0
+        assert data["total"] == 0
     
     def test_empty_query(self, client, agentic_seed):
         """Test that empty query returns empty results for golden_sql"""
@@ -712,7 +751,10 @@ class TestCombinedFilters:
         })
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        assert len(data) == 0
+        assert "items" in data
+        assert "items" in data
+        assert len(data["items"]) >= 1
+        assert data["total"] >= 1
     
     def test_limit_parameter(self, client, agentic_seed):
         """Test that limit parameter works correctly"""
@@ -723,4 +765,60 @@ class TestCombinedFilters:
         })
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        assert len(data) <= 1
+        assert "items" in data
+        assert len(data["items"]) <= 1
+        assert data["limit"] == 1
+    
+    def test_pagination_metadata(self, client, agentic_seed):
+        """Test that pagination metadata is correct"""
+        response = client.post(f"{PREFIX}/tables", json={
+            "query": "test",
+            "datasource_slug": agentic_seed['ds'].slug,
+            "page": 1,
+            "limit": 2
+        })
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        
+        # Verify pagination structure
+        assert "items" in data
+        assert "total" in data
+        assert "page" in data
+        assert "limit" in data
+        assert "has_next" in data
+        assert "has_prev" in data
+        assert "total_pages" in data
+        
+        # Verify values
+        assert data["page"] == 1
+        assert data["limit"] == 2
+        assert isinstance(data["total"], int)
+        assert isinstance(data["has_next"], bool)
+        assert isinstance(data["has_prev"], bool)
+        assert data["has_prev"] == False  # First page has no previous
+        assert data["total_pages"] >= 1
+    
+    def test_pagination_page_2(self, client, agentic_seed):
+        """Test pagination with page 2"""
+        # First get page 1 to see total
+        page1 = client.post(f"{PREFIX}/tables", json={
+            "query": "test",
+            "datasource_slug": agentic_seed['ds'].slug,
+            "page": 1,
+            "limit": 1
+        }).json()
+        
+        if page1["total"] > 1:
+            # Get page 2
+            page2 = client.post(f"{PREFIX}/tables", json={
+                "query": "test",
+                "datasource_slug": agentic_seed['ds'].slug,
+                "page": 2,
+                "limit": 1
+            }).json()
+            
+            assert page2["page"] == 2
+            assert page2["has_prev"] == True
+            # Results should be different from page 1
+            if len(page1["items"]) > 0 and len(page2["items"]) > 0:
+                assert page1["items"][0]["id"] != page2["items"][0]["id"]

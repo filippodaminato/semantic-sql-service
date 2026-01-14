@@ -5,9 +5,27 @@ These schemas define the complete response structures for discovery/search endpo
 All entities return their full data, not just basic fields.
 """
 from pydantic import BaseModel, Field, ConfigDict
-from typing import List, Optional, Any, Literal
+from typing import List, Optional, Any, Literal, Generic, TypeVar
 from uuid import UUID
 from datetime import datetime
+
+# =============================================================================
+# 1. Pagination Support
+# =============================================================================
+
+T = TypeVar('T')
+
+class PaginatedResponse(BaseModel, Generic[T]):
+    """Generic paginated response wrapper for all discovery endpoints."""
+    items: List[T] = Field(description="List of results for current page")
+    total: int = Field(description="Total number of results across all pages")
+    page: int = Field(description="Current page number (1-indexed)")
+    limit: int = Field(description="Number of items per page")
+    has_next: bool = Field(description="Whether there are more pages")
+    has_prev: bool = Field(description="Whether there are previous pages")
+    total_pages: int = Field(description="Total number of pages")
+    
+    model_config = ConfigDict(from_attributes=True)
 
 # =============================================================================
 # 2. Datasource & Memory Level
@@ -16,7 +34,8 @@ from datetime import datetime
 class DiscoverySearchRequest(BaseModel):
     """Request schema for discovery searches."""
     query: str
-    limit: Optional[int] = 10
+    page: Optional[int] = Field(default=1, ge=1, description="Page number (1-indexed)")
+    limit: Optional[int] = Field(default=10, ge=1, le=100, description="Number of items per page (max 100)")
 
 class DatasourceSearchResult(BaseModel):
     """Complete datasource information returned by search."""
@@ -35,7 +54,8 @@ class GoldenSQLSearchRequest(BaseModel):
     """Request schema for Golden SQL search."""
     query: str
     datasource_slug: Optional[str] = None
-    limit: Optional[int] = 10
+    page: Optional[int] = Field(default=1, ge=1, description="Page number (1-indexed)")
+    limit: Optional[int] = Field(default=10, ge=1, le=100, description="Number of items per page (max 100)")
 
 class GoldenSQLResult(BaseModel):
     """Golden SQL example result."""
@@ -59,7 +79,8 @@ class TableSearchRequest(BaseModel):
     """Request schema for table search."""
     query: str
     datasource_slug: Optional[str] = None
-    limit: Optional[int] = 10
+    page: Optional[int] = Field(default=1, ge=1, description="Page number (1-indexed)")
+    limit: Optional[int] = Field(default=10, ge=1, le=100, description="Number of items per page (max 100)")
 
 class TableSearchResult(BaseModel):
     """Complete table information returned by search."""
@@ -80,7 +101,8 @@ class ColumnSearchRequest(BaseModel):
     query: str
     datasource_slug: Optional[str] = None
     table_slug: Optional[str] = None
-    limit: Optional[int] = 10
+    page: Optional[int] = Field(default=1, ge=1, description="Page number (1-indexed)")
+    limit: Optional[int] = Field(default=10, ge=1, le=100, description="Number of items per page (max 100)")
 
 class ColumnSearchResult(BaseModel):
     """Complete column information returned by search."""
@@ -104,7 +126,8 @@ class EdgeSearchRequest(BaseModel):
     query: str
     datasource_slug: Optional[str] = None
     table_slug: Optional[str] = None
-    limit: Optional[int] = 10
+    page: Optional[int] = Field(default=1, ge=1, description="Page number (1-indexed)")
+    limit: Optional[int] = Field(default=10, ge=1, le=100, description="Number of items per page (max 100)")
 
 class EdgeSearchResult(BaseModel):
     """Complete relationship/edge information returned by search."""
@@ -129,7 +152,8 @@ class MetricSearchRequest(BaseModel):
     """Request schema for metric search."""
     query: str
     datasource_slug: Optional[str] = None
-    limit: Optional[int] = 10
+    page: Optional[int] = Field(default=1, ge=1, description="Page number (1-indexed)")
+    limit: Optional[int] = Field(default=10, ge=1, le=100, description="Number of items per page (max 100)")
 
 class MetricSearchResult(BaseModel):
     """Complete metric information returned by search."""
@@ -139,7 +163,7 @@ class MetricSearchResult(BaseModel):
     name: str
     description: Optional[str] = None
     calculation_sql: str  # sql_snippet
-    required_tables: Optional[List[str]] = None  # List of table IDs as strings
+    required_tables: Optional[List[str]] = None  # List of table slugs (resolved from IDs)
     filter_condition: Optional[str] = None
     created_at: datetime
     updated_at: Optional[datetime] = None
@@ -150,7 +174,8 @@ class SynonymSearchRequest(BaseModel):
     """Request schema for synonym search."""
     query: str
     datasource_slug: Optional[str] = None
-    limit: Optional[int] = 10
+    page: Optional[int] = Field(default=1, ge=1, description="Page number (1-indexed)")
+    limit: Optional[int] = Field(default=10, ge=1, le=100, description="Number of items per page (max 100)")
 
 class SynonymSearchResult(BaseModel):
     """Complete synonym information returned by search."""
@@ -168,7 +193,8 @@ class ContextRuleSearchRequest(BaseModel):
     query: str
     datasource_slug: Optional[str] = None
     table_slug: Optional[str] = None
-    limit: Optional[int] = 10
+    page: Optional[int] = Field(default=1, ge=1, description="Page number (1-indexed)")
+    limit: Optional[int] = Field(default=10, ge=1, le=100, description="Number of items per page (max 100)")
 
 class ContextRuleSearchResult(BaseModel):
     """Complete context rule information returned by search."""
@@ -191,7 +217,8 @@ class LowCardinalityValueSearchRequest(BaseModel):
     datasource_slug: Optional[str] = None
     table_slug: Optional[str] = None
     column_slug: Optional[str] = None
-    limit: Optional[int] = 10
+    page: Optional[int] = Field(default=1, ge=1, description="Page number (1-indexed)")
+    limit: Optional[int] = Field(default=10, ge=1, le=100, description="Number of items per page (max 100)")
 
 class LowCardinalityValueSearchResult(BaseModel):
     """Complete low cardinality value information returned by search."""
@@ -205,3 +232,18 @@ class LowCardinalityValueSearchResult(BaseModel):
     updated_at: Optional[datetime] = None
     
     model_config = ConfigDict(from_attributes=True)
+
+# =============================================================================
+# 6. Paginated Response Type Aliases
+# =============================================================================
+
+# Type aliases for paginated responses (for better type hints and IDE support)
+PaginatedDatasourceResponse = PaginatedResponse[DatasourceSearchResult]
+PaginatedGoldenSQLResponse = PaginatedResponse[GoldenSQLResult]
+PaginatedTableResponse = PaginatedResponse[TableSearchResult]
+PaginatedColumnResponse = PaginatedResponse[ColumnSearchResult]
+PaginatedEdgeResponse = PaginatedResponse[EdgeSearchResult]
+PaginatedMetricResponse = PaginatedResponse[MetricSearchResult]
+PaginatedSynonymResponse = PaginatedResponse[SynonymSearchResult]
+PaginatedContextRuleResponse = PaginatedResponse[ContextRuleSearchResult]
+PaginatedLowCardinalityValueResponse = PaginatedResponse[LowCardinalityValueSearchResult]
