@@ -313,6 +313,47 @@ Inserimento esempi corretti per few-shot learning.
 
 ---
 
+---
+
+### 5. Discovery & Retrieval
+
+Endpoints ottimizzati per l'uso da parte dell'Agente per recuperare contesto.
+
+#### POST /api/v1/discovery/context_rules
+
+Ricerca semantica delle regole di business.
+
+**Request Body:**
+```json
+{
+  "query": "regole pagamento",
+  "datasource_slug": "sales_db"
+}
+```
+
+**Response:** `200 OK`
+```json
+{
+  "items": [
+    {
+      "id": "...",
+      "column_slug": "payment_status_col",
+      "table_slug": "orders_table",
+      "slug": "rule_payment_status",
+      "rule_text": "Payment status is CONFIRMED only after webhook.",
+      "created_at": "..."
+    }
+  ],
+  "total": 1,
+  "page": 1,
+  "limit": 10
+}
+```
+
+**Nuovi Campi:**
+- `column_slug`: Slug della colonna a cui è applicata la regola.
+- `table_slug`: Slug della tabella contenente la colonna.
+
 ## Error Handling
 
 ### Error Response Format

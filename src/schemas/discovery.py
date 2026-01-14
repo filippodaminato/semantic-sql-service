@@ -35,7 +35,7 @@ class DiscoverySearchRequest(BaseModel):
     """Request schema for discovery searches."""
     query: str
     page: Optional[int] = Field(default=1, ge=1, description="Page number (1-indexed)")
-    limit: Optional[int] = Field(default=10, ge=1, le=100, description="Number of items per page (max 100)")
+    limit: Optional[int] = Field(default=10, ge=1, le=1000, description="Number of items per page (max 1000)")
 
 class DatasourceSearchResult(BaseModel):
     """Complete datasource information returned by search."""
@@ -55,7 +55,7 @@ class GoldenSQLSearchRequest(BaseModel):
     query: str
     datasource_slug: Optional[str] = None
     page: Optional[int] = Field(default=1, ge=1, description="Page number (1-indexed)")
-    limit: Optional[int] = Field(default=10, ge=1, le=100, description="Number of items per page (max 100)")
+    limit: Optional[int] = Field(default=10, ge=1, le=1000, description="Number of items per page (max 1000)")
 
 class GoldenSQLResult(BaseModel):
     """Golden SQL example result."""
@@ -80,7 +80,7 @@ class TableSearchRequest(BaseModel):
     query: str
     datasource_slug: Optional[str] = None
     page: Optional[int] = Field(default=1, ge=1, description="Page number (1-indexed)")
-    limit: Optional[int] = Field(default=10, ge=1, le=100, description="Number of items per page (max 100)")
+    limit: Optional[int] = Field(default=10, ge=1, le=1000, description="Number of items per page (max 1000)")
 
 class TableSearchResult(BaseModel):
     """Complete table information returned by search."""
@@ -102,7 +102,7 @@ class ColumnSearchRequest(BaseModel):
     datasource_slug: Optional[str] = None
     table_slug: Optional[str] = None
     page: Optional[int] = Field(default=1, ge=1, description="Page number (1-indexed)")
-    limit: Optional[int] = Field(default=10, ge=1, le=100, description="Number of items per page (max 100)")
+    limit: Optional[int] = Field(default=10, ge=1, le=1000, description="Number of items per page (max 1000)")
 
 class ColumnSearchResult(BaseModel):
     """Complete column information returned by search."""
@@ -127,7 +127,7 @@ class EdgeSearchRequest(BaseModel):
     datasource_slug: Optional[str] = None
     table_slug: Optional[str] = None
     page: Optional[int] = Field(default=1, ge=1, description="Page number (1-indexed)")
-    limit: Optional[int] = Field(default=10, ge=1, le=100, description="Number of items per page (max 100)")
+    limit: Optional[int] = Field(default=10, ge=1, le=1000, description="Number of items per page (max 1000)")
 
 class EdgeSearchResult(BaseModel):
     """Complete relationship/edge information returned by search."""
@@ -153,7 +153,7 @@ class MetricSearchRequest(BaseModel):
     query: str
     datasource_slug: Optional[str] = None
     page: Optional[int] = Field(default=1, ge=1, description="Page number (1-indexed)")
-    limit: Optional[int] = Field(default=10, ge=1, le=100, description="Number of items per page (max 100)")
+    limit: Optional[int] = Field(default=10, ge=1, le=1000, description="Number of items per page (max 1000)")
 
 class MetricSearchResult(BaseModel):
     """Complete metric information returned by search."""
@@ -175,7 +175,7 @@ class SynonymSearchRequest(BaseModel):
     query: str
     datasource_slug: Optional[str] = None
     page: Optional[int] = Field(default=1, ge=1, description="Page number (1-indexed)")
-    limit: Optional[int] = Field(default=10, ge=1, le=100, description="Number of items per page (max 100)")
+    limit: Optional[int] = Field(default=10, ge=1, le=1000, description="Number of items per page (max 1000)")
 
 class SynonymSearchResult(BaseModel):
     """Complete synonym information returned by search."""
@@ -194,12 +194,13 @@ class ContextRuleSearchRequest(BaseModel):
     datasource_slug: Optional[str] = None
     table_slug: Optional[str] = None
     page: Optional[int] = Field(default=1, ge=1, description="Page number (1-indexed)")
-    limit: Optional[int] = Field(default=10, ge=1, le=100, description="Number of items per page (max 100)")
+    limit: Optional[int] = Field(default=10, ge=1, le=1000, description="Number of items per page (max 1000)")
 
 class ContextRuleSearchResult(BaseModel):
     """Complete context rule information returned by search."""
     id: UUID
-    column_id: UUID
+    column_slug: str
+    table_slug: str
     slug: str
     rule_text: str
     created_at: datetime
@@ -218,7 +219,7 @@ class LowCardinalityValueSearchRequest(BaseModel):
     table_slug: Optional[str] = None
     column_slug: Optional[str] = None
     page: Optional[int] = Field(default=1, ge=1, description="Page number (1-indexed)")
-    limit: Optional[int] = Field(default=10, ge=1, le=100, description="Number of items per page (max 100)")
+    limit: Optional[int] = Field(default=10, ge=1, le=1000, description="Number of items per page (max 1000)")
 
 class LowCardinalityValueSearchResult(BaseModel):
     """Complete low cardinality value information returned by search."""
@@ -247,3 +248,35 @@ PaginatedMetricResponse = PaginatedResponse[MetricSearchResult]
 PaginatedSynonymResponse = PaginatedResponse[SynonymSearchResult]
 PaginatedContextRuleResponse = PaginatedResponse[ContextRuleSearchResult]
 PaginatedLowCardinalityValueResponse = PaginatedResponse[LowCardinalityValueSearchResult]
+
+# =============================================================================
+# 9. Graph Traversal
+# =============================================================================
+
+class GraphPathRequest(BaseModel):
+    """Request for finding paths between tables."""
+    source_table_slug: str
+    target_table_slug: str
+    datasource_slug: Optional[str] = Field(default=None, description="Optional datasource slug to filter/validate tables")
+    max_depth: Optional[int] = Field(default=3, ge=1, le=5, description="Maximum path depth (hops)")
+    
+class GraphNode(BaseModel):
+    """Node in a graph path."""
+    table_slug: str
+    column_slug: str
+    table_name: str
+    column_name: str
+    
+class GraphEdge(BaseModel):
+    """Edge in a graph path."""
+    source: GraphNode
+    target: GraphNode
+    relationship_type: str
+    description: Optional[str] = None
+    
+class GraphPathResult(BaseModel):
+    """Result containing all valid paths found."""
+    source_table: str
+    target_table: str
+    paths: List[List[GraphEdge]]
+    total_paths: int

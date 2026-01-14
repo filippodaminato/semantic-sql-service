@@ -277,6 +277,8 @@ def test_search_context_rules(client, discovery_seed):
     assert "items" in data
     assert len(data["items"]) >= 1
     assert data["items"][0]["slug"] == "rule_no_deleted_orders"
+    assert data["items"][0]["column_slug"] == "order_id_col"
+    assert data["items"][0]["table_slug"] == "orders_table"
 
 def test_search_low_cardinality_values(client, discovery_seed):
     # Test table level filtering

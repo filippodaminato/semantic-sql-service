@@ -343,10 +343,10 @@ class SearchableMixin:
             vector = embedding_service.generate_embedding(query)
 
             # Build vector search query
-            # Order by L2 distance (Euclidean distance in vector space)
+            # Order by Cosine distance (matches vector_cosine_ops index)
             # Lower distance = higher similarity
             vec_stmt = base_stmt if base_stmt is not None else select(cls)
-            vec_stmt = vec_stmt.order_by(cls.embedding.l2_distance(vector))
+            vec_stmt = vec_stmt.order_by(cls.embedding.cosine_distance(vector))
             vec_stmt = cls._apply_filters(vec_stmt, filters)
             
             # Get more results to account for offset (we'll merge with FTS results)

@@ -448,6 +448,7 @@ class SemanticSynonym(SearchableMixin, Base):
     Translation dictionary Domain <-> Data.
     """
     __tablename__ = "semantic_synonyms"
+    _search_mode = "hybrid"
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     #datasource_id
@@ -466,7 +467,31 @@ class SemanticSynonym(SearchableMixin, Base):
     )
 
     def get_search_content(self) -> str:
-        return (self.term or "").strip()
+        # Resolve target name for better semantic context
+        # e.g. "Synonym for table products: merci"
+        # This bridges the gap between term (e.g. "merci") and intent (e.g. "goods") via the target
+        from sqlalchemy.orm import object_session
+        from .models import TableNode, ColumnNode, SemanticMetric, LowCardinalityValue
+        
+        session = object_session(self)
+        target_name = ""
+        
+        if session:
+            if self.target_type.value == "TABLE":
+                obj = session.get(TableNode, self.target_id)
+                target_name = obj.semantic_name or obj.physical_name if obj else ""
+            elif self.target_type.value == "COLUMN":
+                obj = session.get(ColumnNode, self.target_id)
+                target_name = obj.semantic_name or obj.name if obj else ""
+            elif self.target_type.value == "METRIC":
+                obj = session.get(SemanticMetric, self.target_id)
+                target_name = obj.name if obj else ""
+            elif self.target_type.value == "VALUE":
+                obj = session.get(LowCardinalityValue, self.target_id)
+                target_name = obj.value_label or obj.value_raw if obj else ""
+        
+        context = f"Synonym for {self.target_type.value.lower()} {target_name}: {self.term}"
+        return context.strip()
 
 
 # Context & Value Models

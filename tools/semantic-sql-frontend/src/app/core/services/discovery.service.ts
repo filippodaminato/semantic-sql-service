@@ -50,6 +50,20 @@ export interface EdgeSearchRequest extends DiscoverySearchRequest {
     table_slug?: string;
 }
 
+export interface GraphPathRequest {
+    source_table_slug: string;
+    target_table_slug: string;
+    datasource_slug?: string;
+    max_depth?: number;
+}
+
+export interface GraphPathResult {
+    source_table: string;
+    target_table: string;
+    paths: any[];
+    total_paths: number;
+}
+
 @Injectable({
     providedIn: 'root'
 })
@@ -90,7 +104,12 @@ export class DiscoveryService {
         return this.http.post<PaginatedResponse<any>>(`${this.apiUrl}/low_cardinality_values`, req);
     }
 
+
     searchEdges(req: EdgeSearchRequest): Observable<PaginatedResponse<any>> {
         return this.http.post<PaginatedResponse<any>>(`${this.apiUrl}/edges`, req);
+    }
+
+    searchPaths(req: GraphPathRequest): Observable<GraphPathResult> {
+        return this.http.post<GraphPathResult>(`${this.apiUrl}/paths`, req);
     }
 }

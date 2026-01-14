@@ -20,6 +20,10 @@ export class AppRoutes {
                     {
                         path: 'playground/validator',
                         loadComponent: () => import('./features/playground/validator/value-validator.component').then(m => m.ValueValidatorComponent)
+                    },
+                    {
+                        path: 'playground/paths',
+                        loadComponent: () => import('./features/playground/paths/search-paths.component').then(m => m.SearchPathsComponent)
                     }
                 ]
             },

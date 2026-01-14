@@ -40,7 +40,9 @@ from ..schemas.discovery import (
     PaginatedMetricResponse,
     PaginatedSynonymResponse,
     PaginatedContextRuleResponse,
-    PaginatedLowCardinalityValueResponse
+    PaginatedLowCardinalityValueResponse,
+    # Graph
+    GraphPathRequest, GraphPathResult, GraphNode, GraphEdge
 )
 
 router = APIRouter(prefix="/api/v1/discovery", tags=["Discovery"])
@@ -717,10 +719,36 @@ class SearchService:
         offset = (page - 1) * limit
         hits, total = self._generic_search(ColumnContextRule, query, filters, limit, offset, base_stmt=base_stmt)
         
-        items = [
-            ContextRuleSearchResult.model_validate(hit['entity'])
-            for hit in hits
-        ]
+        # Helper to batch resolve column slugs and table slugs
+        col_ids = {hit['entity'].column_id for hit in hits if hit['entity'].column_id}
+        col_map = {}
+        table_map = {}
+        
+        if col_ids:
+            # Join TableNode to get table_slug efficiently
+            results = self.db.query(ColumnNode, TableNode)\
+                .join(TableNode, ColumnNode.table_id == TableNode.id)\
+                .filter(ColumnNode.id.in_(col_ids))\
+                .all()
+            
+            for col, tbl in results:
+                col_map[col.id] = col.slug
+                table_map[col.id] = tbl.slug # usage: table_map[column_id] -> table_slug
+
+        items = []
+        for hit in hits:
+            entity = hit['entity']
+            # Create dict for Pydantic validation
+            item_dict = {
+                "id": entity.id,
+                "column_slug": col_map.get(entity.column_id, "unknown"),
+                "table_slug": table_map.get(entity.column_id, "unknown"),
+                "slug": entity.slug,
+                "rule_text": entity.rule_text,
+                "created_at": entity.created_at,
+                "updated_at": entity.updated_at
+            }
+            items.append(ContextRuleSearchResult(**item_dict))
         
         return self._build_paginated_response(items, total, page, limit)
 
@@ -806,6 +834,170 @@ class SearchService:
         
         return self._build_paginated_response(items, total, page, limit)
 
+    # -------------------------------------------------------------------------
+    # 10. Graph Paths
+    # -------------------------------------------------------------------------
+    def search_paths(
+        self,
+        source_table_slug: str,
+        target_table_slug: str,
+        max_depth: int = 3,
+        datasource_slug: Optional[str] = None
+    ) -> GraphPathResult:
+        """Find valid paths between two tables using BFS."""
+        
+        # 1. Resolve Slugs to Table IDs
+        ds = None
+        if datasource_slug:
+            ds = self.db.query(Datasource).filter(Datasource.slug == datasource_slug).first()
+            if not ds:
+                raise HTTPException(status_code=404, detail=f"Datasource '{datasource_slug}' not found")
+
+        # Resolve Source Table
+        source_query = self.db.query(TableNode).filter(TableNode.slug == source_table_slug)
+        if ds:
+            source_query = source_query.filter(TableNode.datasource_id == ds.id)
+        source_table = source_query.first()
+        
+        # Resolve Target Table
+        target_query = self.db.query(TableNode).filter(TableNode.slug == target_table_slug)
+        if ds:
+            target_query = target_query.filter(TableNode.datasource_id == ds.id)
+        target_table = target_query.first()
+        
+        if not source_table:
+            raise HTTPException(status_code=404, detail=f"Source table '{source_table_slug}' not found")
+        if not target_table:
+            raise HTTPException(status_code=404, detail=f"Target table '{target_table_slug}' not found")
+            
+        source_id = source_table.id
+        target_id = target_table.id
+        
+        # 2. Build Adjacency List for Graph Traversal
+        all_edges = self.db.query(SchemaEdge).options(
+            joinedload(SchemaEdge.source_column),
+            joinedload(SchemaEdge.target_column)
+        ).all()
+        
+        adj = {}
+        
+        def add_edge(u, v, edge_info):
+            if u not in adj: adj[u] = []
+            adj[u].append((v, edge_info))
+            
+        for edge in all_edges:
+            if not edge.source_column or not edge.target_column:
+                continue
+            u_table = edge.source_column.table_id
+            v_table = edge.target_column.table_id
+            
+            # Forward edge (u -> v)
+            add_edge(u_table, v_table, {"edge": edge, "direction": "forward"})
+            # Reverse edge (v -> u)
+            add_edge(v_table, u_table, {"edge": edge, "direction": "reverse"})
+            
+        # 3. BFS for Path Finding
+        # Queue stores: (current_table_id, path_so_far)
+        # path_so_far is list of (next_table_id, edge_info)
+        queue = [(source_id, [])]
+        valid_paths = []
+        
+        # We need to avoid cycles in standard BFS, but here we want paths.
+        # We use a queue state: (current_node, history).
+        # History tracks visited nodes in THIS path to avoid cycles.
+        
+        while queue:
+            curr_id, path = queue.pop(0)
+            
+            if len(path) > max_depth:
+                continue
+                
+            if curr_id == target_id and path:
+                 # Found path
+                 valid_paths.append(path)
+                 continue
+            
+            if len(path) == max_depth:
+                continue
+                
+            if curr_id in adj:
+                visited_in_path = {source_id}
+                for _, info in path:
+                    # Retrieve the node we MOVED TO in previous steps
+                    # Wait, path stores (next_table_id, edge_info).
+                    # So visited_in_path should include those next_table_ids.
+                    pass
+                    
+                visited_in_path = {source_id}
+                for vid, _ in path:
+                    visited_in_path.add(vid)
+                
+                for neighbor_id, edge_info in adj[curr_id]:
+                    if neighbor_id not in visited_in_path:
+                        queue.append((neighbor_id, path + [(neighbor_id, edge_info)]))
+
+        # 4. Construct Response
+        involved_table_ids = {source_id, target_id}
+        for path in valid_paths:
+            for tid, _ in path:
+                involved_table_ids.add(tid)
+                
+        tables_map = {
+            t.id: t 
+            for t in self.db.query(TableNode).filter(TableNode.id.in_(involved_table_ids)).all()
+        }
+        
+        result_paths = []
+        for path in valid_paths:
+            graph_edges = []
+            curr_table_id = source_id
+            
+            for next_tid, info in path:
+                edge_obj = info["edge"]
+                direction = info["direction"]
+                
+                src_table_obj = tables_map[curr_table_id]
+                dst_table_obj = tables_map[next_tid]
+                
+                if direction == 'forward':
+                    src_col = edge_obj.source_column
+                    dst_col = edge_obj.target_column
+                else:
+                    src_col = edge_obj.target_column
+                    dst_col = edge_obj.source_column
+                
+                src_node = GraphNode(
+                    table_slug=src_table_obj.slug,
+                    column_slug=src_col.slug,
+                    table_name=src_table_obj.physical_name,
+                    column_name=src_col.name
+                )
+                
+                dst_node = GraphNode(
+                    table_slug=dst_table_obj.slug,
+                    column_slug=dst_col.slug,
+                    table_name=dst_table_obj.physical_name,
+                    column_name=dst_col.name
+                )
+                
+                graph_edges.append(GraphEdge(
+                    source=src_node,
+                    target=dst_node,
+                    relationship_type=str(edge_obj.relationship_type),
+                    description=edge_obj.description
+                ))
+                
+                curr_table_id = next_tid
+                
+            result_paths.append(graph_edges)
+            
+        return GraphPathResult(
+            source_table=source_table.physical_name,
+            target_table=target_table.physical_name,
+            paths=result_paths,
+            total_paths=len(result_paths)
+        )
+
 
 # =============================================================================
 # API ENDPOINTS
@@ -855,3 +1047,20 @@ def search_context_rules(request: ContextRuleSearchRequest, db: Session = Depend
 def search_low_cardinality_values(request: LowCardinalityValueSearchRequest, db: Session = Depends(get_db)):
     service = SearchService(db)
     return service.search_low_cardinality_values(request.query, request.datasource_slug, request.table_slug, request.column_slug, request.page, request.limit)
+
+@router.post("/paths", response_model=GraphPathResult)
+def search_graph_paths(
+    request: GraphPathRequest,
+    db: Session = Depends(get_db)
+) -> GraphPathResult:
+    """
+    Find all valid paths between two tables in the schema graph.
+    Useful for understanding how tables can be joined.
+    """
+    service = SearchService(db)
+    return service.search_paths(
+        request.source_table_slug,
+        request.target_table_slug,
+        request.max_depth,
+        request.datasource_slug
+    )
