@@ -17,17 +17,6 @@ import { Table, Column, ContextRule, NominalValue } from '../../../../core/model
 import { ContextRulesDialogComponent } from './context-rules-dialog.component';
 import { NominalValuesDialogComponent } from './nominal-values-dialog.component';
 
-const COMMON_SQL_TYPES = [
-  'VARCHAR',
-  'INTEGER',
-  'BOOLEAN',
-  'TIMESTAMP',
-  'UUID',
-  'JSONB',
-  'FLOAT',
-  'TEXT'
-];
-
 @Component({
   selector: 'app-add-column-dialog',
   standalone: true,
@@ -48,9 +37,7 @@ const COMMON_SQL_TYPES = [
 
         <mat-form-field appearance="outline" class="w-full tech-input">
           <mat-label>Data Type</mat-label>
-          <mat-select [(ngModel)]="data.data_type">
-              <mat-option *ngFor="let type of sqlTypes" [value]="type">{{type}}</mat-option>
-          </mat-select>
+          <input matInput [(ngModel)]="data.data_type" placeholder="e.g. VARCHAR(255), INT, JSONB">
         </mat-form-field>
         
         <div class="flex items-center gap-2 text-gray-300">
@@ -66,7 +53,6 @@ const COMMON_SQL_TYPES = [
 })
 export class AddColumnDialogComponent {
   data = { name: '', slug: '', data_type: 'VARCHAR', is_primary_key: false };
-  sqlTypes = COMMON_SQL_TYPES;
 }
 
 @Component({
@@ -207,11 +193,8 @@ export class AddColumnDialogComponent {
                     <ng-container matColumnDef="data_type">
                         <th mat-header-cell *matHeaderCellDef> Type </th>
                         <td mat-cell *matCellDef="let col" class="w-[150px]">
-                            <mat-select [(ngModel)]="col.data_type" (selectionChange)="updateColumn(col)" class="text-xs font-mono h-8">
-                                <mat-option *ngFor="let type of sqlTypes" [value]="type" class="text-xs font-mono">
-                                    {{type}}
-                                </mat-option>
-                            </mat-select>
+                             <input class="bg-transparent border-none text-blue-300 font-mono w-full focus:ring-1 focus:ring-blue-500 rounded px-1 text-xs" 
+                                [(ngModel)]="col.data_type" (blur)="updateColumn(col)">
                         </td>
                     </ng-container>
 
@@ -397,7 +380,6 @@ export class TableDetailComponent implements OnChanges {
   displayedColumns = ['semantic_name', 'name', 'slug', 'data_type', 'is_primary_key', 'description', 'context_note', 'actions'];
   contextRulesColumns = ['column_name', 'rule_text', 'actions'];
   nominalValuesColumns = ['column_name', 'raw', 'label', 'actions'];
-  sqlTypes = COMMON_SQL_TYPES;
 
   constructor(private adminService: AdminService, private dialog: MatDialog) { }
 

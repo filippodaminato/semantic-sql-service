@@ -808,22 +808,11 @@ def delete_relationship(relationship_id: UUID, db: Session = Depends(get_db)):
 def list_metrics(datasource_id: Optional[UUID] = None, db: Session = Depends(get_db)):
     """List all metrics, optionally filtered by datasource."""
     query = db.query(SemanticMetric)
-    metrics = query.all()
     
     if datasource_id:
-        # Filter metrics relevant to this datasource (via required tables)
-        ds_tables = db.query(TableNode.id).filter(TableNode.datasource_id == datasource_id).all()
-        ds_table_ids = {str(t.id) for t in ds_tables}
+        query = query.filter(SemanticMetric.datasource_id == datasource_id)
         
-        filtered = []
-        for m in metrics:
-            # If no tables required, maybe it's global? For now assume it's NOT specific to this DS unless listed.
-            # Or if required_tables is empty, it might be invalid or global.
-            if not m.required_tables:
-                continue 
-            if any(tid in ds_table_ids for tid in m.required_tables):
-                filtered.append(m)
-        metrics = filtered
+    metrics = query.all()
 
     return [
         {

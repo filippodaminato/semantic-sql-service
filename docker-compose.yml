@@ -12,7 +12,7 @@ services:
       - postgres_data:/var/lib/postgresql/data
       - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U semantic_user -d semantic_sql"]
+      test: [ "CMD-SHELL", "pg_isready -U semantic_user -d semantic_sql" ]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -34,14 +34,26 @@ services:
       - ./src:/app/src
       - ./tests:/app/tests
       - ./alembic:/app/alembic
+      - ./scripts:/app/scripts
     depends_on:
       db:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: [ "CMD", "curl", "-f", "http://localhost:8000/health" ]
       interval: 10s
       timeout: 5s
       retries: 5
+
+  pgadmin:
+    image: dpage/pgadmin4
+    container_name: semantic-sql-pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@admin.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      - "5050:80"
+    depends_on:
+      - db
 
 volumes:
   postgres_data:

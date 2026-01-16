@@ -1,0 +1,136 @@
+CREATE TABLE ai.batch (
+	batch_id int8 NULL,
+	batch_code varchar(100) NULL,
+	expire_date timestamp NULL,
+	incoming_date timestamp NULL,
+	supplier_batch_code varchar(100) NULL,
+	is_blocked int2 NULL,
+	product_id int8 NULL,
+	product_code varchar(100) NULL,
+	product_description varchar(255) NULL
+);
+
+
+CREATE TABLE ai.product (
+	product_id int8 NULL,
+	product_code varchar(100) NULL,
+	product_description varchar(255) NULL
+);
+
+
+CREATE TABLE ai.shipmission_done (
+	mission_id int8 NULL,
+	mission_name varchar(100) NULL,
+	mission_date timestamp NULL,
+	account_id int8 NULL,
+	account_type int2 NULL,
+	account_code varchar(100) NULL,
+	account_name varchar(255) NULL,
+	delivery_date timestamp NULL,
+	product_id int8 NULL,
+	product_code varchar(100) NULL,
+	product_description varchar(255) NULL,
+	quantity_to_ship numeric(20, 10) NULL,
+	shipped_quantity numeric(20, 10) NULL,
+	measure_unit varchar(20) NULL,
+	package_quantity_to_ship numeric(38, 7) NULL,
+	package_quantity_shipped numeric(38, 7) NULL,
+	total_weight_to_ship numeric(38, 17) NULL,
+	total_weight_shipped numeric(38, 17) NULL,
+	shipper_id int8 NULL,
+	shipper_code varchar(100) NULL,
+	shipper_name varchar(100) NULL,
+	shipping_zone varchar(255) NULL,
+	shipping_state varchar(100) NULL,
+	shipping_province varchar(100) NULL,
+	operator_name varchar(10) NULL,
+	shipping_date timestamp NULL,
+	row_is_shipped int4 NULL,
+	capacity_quantity numeric(20, 10) NULL,
+	conversionfactor_1to2 numeric(20, 10) NULL
+);
+
+CREATE TABLE ai.shipmission_todo (
+	mission_id int8 NULL,
+	mission_name varchar(100) NULL,
+	mission_date timestamp NULL,
+	delivery_date timestamp NULL,
+	account_id int8 NULL,
+	account_type int2 NULL,
+	account_code varchar(100) NULL,
+	account_name varchar(255) NULL,
+	product_id int8 NULL,
+	product_code varchar(100) NULL,
+	product_description varchar(255) NULL,
+	quantity numeric(20, 10) NULL,
+	measure_unit varchar(20) NULL,
+	package_quantity numeric(38, 7) NULL,
+	total_weight numeric(38, 17) NULL,
+	shipper_id int8 NULL,
+	shipper_code varchar(100) NULL,
+	shipper_name varchar(100) NULL,
+	shipping_zone varchar(255) NULL,
+	shipping_state varchar(100) NULL,
+	shipping_province varchar(100) NULL
+);
+
+
+CREATE TABLE ai.warehouse (
+	warehouse_id int8 NULL,
+	warehouse_name varchar(100) NULL,
+	warehouse_description varchar(255) NULL
+);
+
+
+CREATE TABLE ai.warehouse_locations (
+	location_id int8 NULL,
+	location_code varchar(100) NULL,
+	warehouse_id int8 NULL,
+	warehouse_name varchar(100) NULL,
+	shelf_code varchar(100) NULL,
+	floor_code varchar(20) NULL,
+	box_code varchar(20) NULL,
+	location_behavior varchar(12) NULL
+);
+
+
+CREATE TABLE ai.warehouse_movements (
+	movement_date timestamp NULL,
+	movement_user_name varchar(10) NULL,
+	warehouse_id int8 NULL,
+	warehouse_name varchar(100) NULL,
+	location_id int8 NULL,
+	location_code varchar(100) NULL,
+	product_id int8 NULL,
+	product_code varchar(100) NULL,
+	product_description varchar(255) NULL,
+	batch_id int8 NULL,
+	batch_code varchar(100) NULL,
+	batch_expire_date timestamp NULL,
+	cause_description varchar(255) NULL,
+	movement_type int4 NULL,
+	movement_sign int2 NULL,
+	movement_quantity numeric(20, 10) NULL,
+	measure_unit varchar(20) NULL,
+	movement_package_quantit numeric(38, 7) NULL,
+	account_type int2 NULL,
+	account_code varchar(100) NULL,
+	account_name varchar(255) NULL
+);
+
+
+CREATE TABLE ai.warehouse_stock (
+	warehouse_id int8 NULL,
+	warehouse_name varchar(100) NULL,
+	location_id int8 NULL,
+	location_code varchar(100) NULL,
+	product_id int8 NULL,
+	product_code varchar(100) NULL,
+	product_description varchar(255) NULL,
+	product_hasbatch int4 NULL,
+	batch_id int8 NULL,
+	batch_code varchar(100) NULL,
+	batch_expire_date timestamp NULL,
+	stock_quantity numeric(38, 10) NULL,
+	measure_unit varchar(20) NULL
+);

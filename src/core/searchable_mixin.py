@@ -86,6 +86,9 @@ class SearchableMixin:
     # Format: 64-character hexadecimal string
     embedding_hash = Column(String(64), nullable=True)
 
+    # Content used to generate the embedding (persisted for debugging/inspection)
+    embedding_text = Column(String, nullable=True)
+
     # Note: 'search_vector' (TSVECTOR) must be defined in the child model
     # using Computed(), as it depends on model-specific columns.
     # Example:
@@ -160,6 +163,7 @@ class SearchableMixin:
         if self._search_mode == "fts_only":
             self.embedding = None
             self.embedding_hash = None
+            self.embedding_text = None
             return
 
         # Get content to embed
@@ -168,6 +172,7 @@ class SearchableMixin:
             # Empty content: clear embedding
             self.embedding = None
             self.embedding_hash = None
+            self.embedding_text = None
             return
 
         # Compute hash of current content
@@ -175,8 +180,12 @@ class SearchableMixin:
 
         # CRITICAL OPTIMIZATION: If hash matches, content hasn't changed
         # Skip expensive API call and database update
+        # Check if embedding_text is set (might be missing due to schema update)
         if self.embedding_hash == new_hash and self.embedding is not None:
-            return  # Cache hit: no update needed
+             if self.embedding_text is None:
+                 # Backfill text if missing even on cache hit
+                  self.embedding_text = content
+             return  # Cache hit: no update needed
 
         # Content changed or embedding missing: regenerate
         vector = embedding_service.generate_embedding(content)
@@ -184,6 +193,7 @@ class SearchableMixin:
         # Update embedding and hash
         self.embedding = vector
         self.embedding_hash = new_hash
+        self.embedding_text = content
 
     @classmethod
     def _apply_filters(cls, stmt, filters: Dict[str, Any]):

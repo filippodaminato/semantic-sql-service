@@ -262,6 +262,23 @@ class TableNode(SearchableMixin, Base):
             str: Concatenated semantic_name and description
         """
         parts = [self.semantic_name, self.description]
+        if self.ddl_context:
+            parts.append(self.ddl_context)
+        
+        # Include Synonyms to enhance retrieval
+        # e.g. "merci" -> products table
+        from sqlalchemy.orm import object_session
+        session = object_session(self)
+        if session:
+            # Lazy import to handle definition order
+            # SemanticSynonym is defined below
+            synonyms = session.query(SemanticSynonym.term).filter(
+                SemanticSynonym.target_id == self.id,
+                SemanticSynonym.target_type == SynonymTargetType.TABLE
+            ).all()
+            if synonyms:
+                parts.append("Synonyms: " + ", ".join([s.term for s in synonyms]))
+
         return " ".join([p for p in parts if p]).strip()
     
     # Note: Unique constraint for (datasource_id, physical_name) should be added via Alembic migration
@@ -284,7 +301,7 @@ class ColumnNode(SearchableMixin, Base):
         name: Physical column name in database (e.g., "usr_id")
         slug: URL-friendly identifier
         semantic_name: Human-readable name (e.g., "User ID")
-        data_type: Native SQL data type (e.g., "VARCHAR(255)", "INT", "DECIMAL(10,2)")
+        data_type: Standardized data type (INTEGER, STRING, etc.)
         is_primary_key: Whether this column is a primary key (critical for entity identification)
         description: Column description for semantic search
         context_note: Additional context (e.g., "NULL means transaction failed")
@@ -307,7 +324,7 @@ class ColumnNode(SearchableMixin, Base):
             table_id=table.id,
             name="amount_total",
             semantic_name="Importo Totale",
-            data_type="DECIMAL(10,2)",
+            data_type=DataType.DECIMAL,
             is_primary_key=False,
             description="Importo totale della transazione",
             context_note="Include IVA. Se null, transazione fallita."
@@ -367,6 +384,18 @@ class ColumnNode(SearchableMixin, Base):
 
     def get_search_content(self) -> str:
         parts = [self.semantic_name or self.name, self.description, self.context_note]
+
+        # Include Synonyms
+        from sqlalchemy.orm import object_session
+        session = object_session(self)
+        if session:
+            synonyms = session.query(SemanticSynonym.term).filter(
+                SemanticSynonym.target_id == self.id,
+                SemanticSynonym.target_type == SynonymTargetType.COLUMN
+            ).all()
+            if synonyms:
+                parts.append("Synonyms: " + ", ".join([s.term for s in synonyms]))
+
         return " ".join([p for p in parts if p]).strip()
 
 

@@ -57,13 +57,14 @@ async def lifespan(app: FastAPI):
     
     # Create database tables if they don't exist (development convenience)
     # In production, use Alembic migrations: `alembic upgrade head`
-    try:
-        Base.metadata.create_all(bind=engine, checkfirst=True)
-        logger.info("Database tables verified/created successfully")
-    except Exception as e:
-        # Log warning but don't fail startup - migrations may handle this
-        logger.warning(f"Warning during table creation: {e}")
-        logger.warning("If using Alembic, run: alembic upgrade head")
+    # FAILSAFE: Commented out to prevent conflict with Alembic migrations
+    # try:
+    #     Base.metadata.create_all(bind=engine, checkfirst=True)
+    #     logger.info("Database tables verified/created successfully")
+    # except Exception as e:
+    #     # Log warning but don't fail startup - migrations may handle this
+    #     logger.warning(f"Warning during table creation: {e}")
+    #     logger.warning("If using Alembic, run: alembic upgrade head")
     
     # Yield control to the application
     yield
