@@ -435,6 +435,50 @@ def seed_wms_metadata():
         logger.info("WMS Full Metadata Seeding Completed Successfully.")
 
         session.commit()
+        session.commit()
+        logger.info("WMS Full Metadata Seeding Completed Successfully.")
+
+        # 8. Refresh Table Embeddings to include Synonyms via RRF/Search Content
+        # Since tables were created before synonyms, their embeddings didn't include them.
+        # Now that synonyms exist, we force an update check.
+        logger.info("Refreshing Table Embeddings to include Synonyms...")
+        tables = session.query(TableNode).filter(TableNode.datasource_id == datasource.id).all()
+        count_updated = 0
+        for table in tables:
+            # This triggers get_search_content(), which now finds the synonyms
+            # The hash check in update_embedding_if_needed will see the change
+            # and regenerate the embedding.
+            old_hash = table.embedding_hash
+            table.update_embedding_if_needed()
+            if table.embedding_hash != old_hash:
+                count_updated += 1
+                logger.info(f"  Updated embedding for table: {table.physical_name}")
+        
+        if count_updated > 0:
+            session.commit()
+            logger.info(f"Refreshed {count_updated} table embeddings.")
+        else:
+            logger.info("No table embeddings needed updating (hashes matched).")
+
+        logger.info("Refreshing Column Embeddings to include Synonyms...")
+        # Join with TableNode to filter by datasource if needed, or just refresh all columns for this datasource's tables
+        columns = session.query(ColumnNode).join(TableNode).filter(TableNode.datasource_id == datasource.id).all()
+        count_col_updated = 0
+        for column in columns:
+            old_hash = column.embedding_hash
+            column.update_embedding_if_needed()
+            if column.embedding_hash != old_hash:
+                count_col_updated += 1
+                # Log only every 10th update to avoid noise, or log all if few
+                if count_col_updated % 10 == 0:
+                    logger.info(f"  Updated embedding for column: {column.name}")
+        
+        if count_col_updated > 0:
+            session.commit()
+            logger.info(f"Refreshed {count_col_updated} column embeddings.")
+        else:
+            logger.info("No column embeddings needed updating.")
+
         logger.info("WMS Full Metadata Seeding Completed Successfully.")
     
     except Exception as e:

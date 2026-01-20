@@ -280,3 +280,12 @@ class GraphPathResult(BaseModel):
     target_table: str
     paths: List[List[GraphEdge]]
     total_paths: int
+
+# =============================================================================
+# 10. MCP Support
+# =============================================================================
+
+class MCPResponse(BaseModel):
+    """Response wrapper for Model Context Protocol (MCP) formatted strings."""
+    res: str = Field(description="Formatted string representation of the results")
+

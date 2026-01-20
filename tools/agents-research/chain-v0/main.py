@@ -51,7 +51,9 @@ Always start by checking 'search_datasources' if you don't know the datasource.
 Use 'search_tables' and 'search_columns' to explore the schema.
 You can find example queries with 'search_golden_sql'.
 When you have enough info create a SQL query (but you cannot run SQL directly yet).
-Generate the SQL query and return it."""
+Generate the SQL query and return it.
+Never use slugs in the query.
+"""
 
 def call_model(state: AgentState):
     messages = state["messages"]
@@ -129,8 +131,8 @@ if __name__ == "__main__":
                                 print(f"  [Tool Call]: {tc['name']}({tc['args']})")
                     elif key == "tools":
                         # Optional: Print tool outputs for debugging
-                        # for msg in value["messages"]:
-                        #     print(f"  [Tool Output]: {msg.content[:200]}...")
+                        for msg in value["messages"]:
+                            print(f"  [Tool Output]: {msg.content[:200]}...")
                         pass
         except KeyboardInterrupt:
             print("\nExiting...")

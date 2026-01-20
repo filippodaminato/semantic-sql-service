@@ -92,6 +92,18 @@ import { JsonPipe } from '@angular/common';
                     </mat-form-field>
                   </div>
 
+                  <!-- Response Mode -->
+                  <div class="space-y-1">
+                    <label class="text-xs font-mono text-gray-500 uppercase tracking-wider ml-1">Response Mode</label>
+                    <mat-form-field appearance="outline" class="w-full custom-dark-field">
+                      <mat-select [(ngModel)]="responseMode" (selectionChange)="clearResults()" placeholder="Select mode">
+                        <mat-option value="json">Standard (JSON)</mat-option>
+                        <mat-option value="mcp">MCP (Text)</mat-option>
+                      </mat-select>
+                      <mat-icon matPrefix class="text-gray-500 mr-2">code</mat-icon>
+                    </mat-form-field>
+                  </div>
+
                   <!-- Limit -->
                   <div class="space-y-1">
                      <label class="text-xs font-mono text-gray-500 uppercase tracking-wider ml-1">Limit</label>
@@ -172,12 +184,15 @@ import { JsonPipe } from '@angular/common';
                      <span *ngIf="hasSearched() && pagination()" class="bg-blue-500/10 text-blue-400 text-xs px-2 py-0.5 rounded border border-blue-500/20 font-mono">
                         {{ pagination()!.total }} total
                      </span>
-                     <span *ngIf="hasSearched() && !pagination()" class="bg-blue-500/10 text-blue-400 text-xs px-2 py-0.5 rounded border border-blue-500/20 font-mono">
+                     <span *ngIf="hasSearched() && !pagination() && !mcpResult()" class="bg-blue-500/10 text-blue-400 text-xs px-2 py-0.5 rounded border border-blue-500/20 font-mono">
                         {{ results().length }} hits
+                     </span>
+                     <span *ngIf="mcpResult()" class="bg-purple-500/10 text-purple-400 text-xs px-2 py-0.5 rounded border border-purple-500/20 font-mono">
+                        MCP TEXT
                      </span>
                   </div>
                   <div class="flex gap-2">
-                     <button mat-icon-button class="!text-gray-500 hover:!text-white transition-colors" matTooltip="Copy JSON" (click)="copyResults()">
+                     <button mat-icon-button class="!text-gray-500 hover:!text-white transition-colors" matTooltip="Copy Result" (click)="copyResults()">
                         <mat-icon class="text-sm">content_copy</mat-icon>
                      </button>
                      <button mat-icon-button class="!text-gray-500 hover:!text-white transition-colors" matTooltip="Clear" (click)="clearResults()">
@@ -232,15 +247,20 @@ import { JsonPipe } from '@angular/common';
                    </div>
 
                    <!-- Empty State (No Results) -->
-                   <div *ngIf="hasSearched() && results().length === 0 && !loading()" class="h-full flex flex-col items-center justify-center text-center p-12">
+                   <div *ngIf="hasSearched() && results().length === 0 && !mcpResult() && !loading()" class="h-full flex flex-col items-center justify-center text-center p-12">
                        <mat-icon class="text-5xl text-gray-700 mb-4">search_off</mat-icon>
                        <h3 class="text-lg font-bold text-gray-400">No results found</h3>
                        <p class="text-gray-600 mt-2">Try adjusting your query or filters.</p>
                    </div>
 
                    <!-- JSON View -->
-                   <div *ngIf="hasSearched() && results().length > 0" class="p-6">
+                   <div *ngIf="hasSearched() && results().length > 0 && !mcpResult()" class="p-6">
                        <pre class="font-mono text-sm text-blue-300 leading-relaxed bg-[#0a0e14] p-6 rounded-xl border border-white/5 shadow-inner overflow-x-auto selection:bg-blue-500/30 selection:text-white">{{ results() | json }}</pre>
+                   </div>
+
+                   <!-- MCP Text View -->
+                   <div *ngIf="hasSearched() && mcpResult()" class="p-6">
+                       <pre class="font-mono text-sm text-purple-300 leading-relaxed bg-[#0a0e14] p-6 rounded-xl border border-purple-500/10 shadow-inner overflow-x-auto whitespace-pre-wrap selection:bg-purple-500/30 selection:text-white">{{ mcpResult() }}</pre>
                    </div>
 
                    <!-- Error -->
@@ -336,6 +356,7 @@ export class RetrievalPlaygroundComponent {
     private discoveryService = inject(DiscoveryService);
 
     selectedEndpoint = signal<string>('tables');
+    responseMode = signal<string>('json');
     query = signal<string>('');
     datasourceSlug = signal<string>('');
     tableSlug = signal<string>('');
@@ -344,6 +365,7 @@ export class RetrievalPlaygroundComponent {
     page = signal<number>(1);
 
     results = signal<any[]>([]);
+    mcpResult = signal<string | null>(null);
     pagination = signal<{ total: number; page: number; limit: number; has_next: boolean; has_prev: boolean; total_pages: number } | null>(null);
     loading = signal<boolean>(false);
     error = signal<string | null>(null);
@@ -352,6 +374,7 @@ export class RetrievalPlaygroundComponent {
 
     clearResults() {
         this.results.set([]);
+        this.mcpResult.set(null);
         this.pagination.set(null);
         this.error.set(null);
         this.hasSearched.set(false);
@@ -359,7 +382,9 @@ export class RetrievalPlaygroundComponent {
     }
 
     copyResults() {
-        if (this.results().length > 0) {
+        if (this.responseMode() === 'mcp' && this.mcpResult()) {
+            navigator.clipboard.writeText(this.mcpResult()!);
+        } else if (this.results().length > 0) {
             navigator.clipboard.writeText(JSON.stringify(this.results(), null, 2));
         }
     }
@@ -367,13 +392,19 @@ export class RetrievalPlaygroundComponent {
     search() {
         this.loading.set(true);
         this.error.set(null);
+        this.mcpResult.set(null); // clear previous
+        this.results.set([]);
+
         const start = performance.now();
 
         const ep = this.selectedEndpoint();
+        const isMcp = this.responseMode() === 'mcp';
+
         const baseReq = {
             query: this.query(),
             page: this.page(),
-            limit: this.limit()
+            limit: this.limit(),
+            mcp: isMcp
         };
 
         let obs;
@@ -414,8 +445,14 @@ export class RetrievalPlaygroundComponent {
 
         obs.subscribe({
             next: (data) => {
-                // Handle paginated response
-                if (data && 'items' in data) {
+                // MCP Response
+                if (data && 'res' in data) {
+                    this.mcpResult.set(data.res);
+                    // Clear pagination for MCP as it's embedded in text
+                    this.pagination.set(null);
+                }
+                // Standard Paginated Response
+                else if (data && 'items' in data) {
                     this.results.set(data.items);
                     this.pagination.set({
                         total: data.total,
@@ -426,7 +463,7 @@ export class RetrievalPlaygroundComponent {
                         total_pages: data.total_pages
                     });
                 } else {
-                    // Fallback for non-paginated responses (backward compatibility)
+                    // Fallback
                     this.results.set(Array.isArray(data) ? data : []);
                     this.pagination.set(null);
                 }
@@ -472,5 +509,5 @@ export class RetrievalPlaygroundComponent {
             this.search();
         }
     }
-    }
+}
 
