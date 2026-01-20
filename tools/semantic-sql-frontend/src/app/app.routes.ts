@@ -24,6 +24,10 @@ export class AppRoutes {
                     {
                         path: 'playground/paths',
                         loadComponent: () => import('./features/playground/paths/search-paths.component').then(m => m.SearchPathsComponent)
+                    },
+                    {
+                        path: 'playground/resolve-context',
+                        loadComponent: () => import('./features/playground/context/resolve-context-playground.component').then(m => m.ResolveContextPlaygroundComponent)
                     }
                 ]
             },

@@ -65,6 +65,51 @@ export interface GraphPathResult {
     total_paths: number;
 }
 
+// Context Resolution Interfaces
+export type ContextSearchEntity = 'datasources' | 'tables' | 'columns' | 'edges' | 'metrics' | 'context_rules' | 'low_cardinality_values' | 'golden_sql';
+
+export interface ContextSearchItem {
+    entity: ContextSearchEntity;
+    search_text: string;
+}
+
+export interface ResolvedColumn {
+    id: string;
+    name: string;
+    slug: string;
+    semantic_name?: string;
+    data_type: string;
+    description?: string;
+    context_rules: any[];
+    nominal_values: any[];
+    [key: string]: any;
+}
+
+export interface ResolvedTable {
+    id: string;
+    physical_name: string;
+    slug: string;
+    semantic_name: string;
+    description?: string;
+    columns: ResolvedColumn[];
+    [key: string]: any;
+}
+
+export interface ResolvedDatasource {
+    id: string;
+    name: string;
+    slug: string;
+    tables: ResolvedTable[];
+    metrics: any[];
+    golden_sqls: any[];
+    edges: any[];
+    [key: string]: any;
+}
+
+export interface ContextResolutionResponse {
+    graph: ResolvedDatasource[];
+}
+
 @Injectable({
     providedIn: 'root'
 })
@@ -116,5 +161,9 @@ export class DiscoveryService {
 
     searchPaths(req: GraphPathRequest): Observable<GraphPathResult> {
         return this.http.post<GraphPathResult>(`${this.apiUrl}/paths`, req);
+    }
+
+    resolveContext(items: ContextSearchItem[]): Observable<ContextResolutionResponse> {
+        return this.http.post<ContextResolutionResponse>(`${this.apiUrl}/resolve-context`, items);
     }
 }

@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field, ConfigDict
 from typing import List, Optional, Any, Literal, Generic, TypeVar
 from uuid import UUID
 from datetime import datetime
+from enum import Enum as PyEnum
 
 # =============================================================================
 # 1. Pagination Support
@@ -47,6 +48,7 @@ class DatasourceSearchResult(BaseModel):
     context_signature: Optional[str] = None
     created_at: datetime
     updated_at: Optional[datetime] = None
+    score: Optional[float] = None
     
     model_config = ConfigDict(from_attributes=True)
 
@@ -93,6 +95,7 @@ class TableSearchResult(BaseModel):
     ddl_context: Optional[str] = None
     created_at: datetime
     updated_at: Optional[datetime] = None
+    score: Optional[float] = None
     
     model_config = ConfigDict(from_attributes=True)
 
@@ -118,6 +121,7 @@ class ColumnSearchResult(BaseModel):
     context_note: Optional[str] = None
     created_at: datetime
     updated_at: Optional[datetime] = None
+    score: Optional[float] = None
     
     model_config = ConfigDict(from_attributes=True)
 
@@ -141,6 +145,7 @@ class EdgeSearchResult(BaseModel):
     description: Optional[str] = None
     context_note: Optional[str] = None
     created_at: datetime
+    score: Optional[float] = None
     
     model_config = ConfigDict(from_attributes=True)
 
@@ -167,6 +172,7 @@ class MetricSearchResult(BaseModel):
     filter_condition: Optional[str] = None
     created_at: datetime
     updated_at: Optional[datetime] = None
+    score: Optional[float] = None
     
     model_config = ConfigDict(from_attributes=True)
 
@@ -185,6 +191,7 @@ class SynonymSearchResult(BaseModel):
     target_type: str  # TABLE, COLUMN, METRIC, VALUE
     maps_to_slug: str  # Resolved slug of target entity (if available)
     created_at: datetime
+    score: Optional[float] = None
     
     model_config = ConfigDict(from_attributes=True)
 
@@ -199,12 +206,14 @@ class ContextRuleSearchRequest(BaseModel):
 class ContextRuleSearchResult(BaseModel):
     """Complete context rule information returned by search."""
     id: UUID
+    column_id: UUID
     column_slug: str
     table_slug: str
     slug: str
     rule_text: str
     created_at: datetime
     updated_at: Optional[datetime] = None
+    score: Optional[float] = None
     
     model_config = ConfigDict(from_attributes=True)
 
@@ -231,6 +240,7 @@ class LowCardinalityValueSearchResult(BaseModel):
     value_label: Optional[str] = None  # label
     created_at: datetime
     updated_at: Optional[datetime] = None
+    score: Optional[float] = None
     
     model_config = ConfigDict(from_attributes=True)
 
@@ -287,5 +297,55 @@ class GraphPathResult(BaseModel):
 
 class MCPResponse(BaseModel):
     """Response wrapper for Model Context Protocol (MCP) formatted strings."""
-    res: str = Field(description="Formatted string representation of the results")
+
+# =============================================================================
+# 11. Context Resolution (Unified Batch Execution)
+# =============================================================================
+
+class ContextSearchEntity(str, PyEnum):
+    """Entities supported for context resolution search."""
+    # Core
+    DATASOURCES = "datasources"
+    TABLES = "tables"
+    COLUMNS = "columns"
+    EDGES = "edges"
+    # Semantic
+    METRICS = "metrics"
+    # Context & Values
+    CONTEXT_RULES = "context_rules"
+    LOW_CARDINALITY_VALUES = "low_cardinality_values"
+    # Learning
+    GOLDEN_SQL = "golden_sql"
+
+class ContextSearchItem(BaseModel):
+    """Single item in the batch context search request."""
+    entity: ContextSearchEntity
+    search_text: str
+
+class ResolvedColumn(ColumnSearchResult):
+    """Column with nested context details."""
+    context_rules: List[ContextRuleSearchResult] = []
+    nominal_values: List[LowCardinalityValueSearchResult] = []
+
+    model_config = ConfigDict(from_attributes=True)
+
+class ResolvedTable(TableSearchResult):
+    """Table with nested columns."""
+    columns: List[ResolvedColumn] = []
+
+    model_config = ConfigDict(from_attributes=True)
+
+class ResolvedDatasource(DatasourceSearchResult):
+    """Root of the resolved context graph."""
+    tables: List[ResolvedTable] = []
+    metrics: List[MetricSearchResult] = []
+    golden_sqls: List[GoldenSQLResult] = []
+    edges: List[EdgeSearchResult] = []
+
+    model_config = ConfigDict(from_attributes=True)
+
+class ContextResolutionResponse(BaseModel):
+    """Final response for the resolve-context endpoint."""
+    graph: List[ResolvedDatasource]
+
 
