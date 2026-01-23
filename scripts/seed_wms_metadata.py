@@ -4,6 +4,9 @@ import sys
 import os
 from uuid import uuid4
 from typing import Dict, List, Tuple
+import random
+from datetime import datetime, timedelta
+from sqlalchemy import text
 
 # Add project root to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
@@ -239,6 +242,277 @@ WMS_SYNONYMS = [
     ("Carrier", SynonymTargetType.COLUMN, "shipmission_done.shipper_name", "syn_carrier_shipper"),
 ]
 
+
+
+def seed_physical_wms_data():
+    """
+    Seeds physical data into the 'ai' schema tables to support analytical queries.
+    Refreshes schema, creates tables from DDL, and populates with synthetic data.
+    """
+    logger.info("Starting Physical WMS Data Seeding...")
+    session = SessionLocal()
+    try:
+        # 1. Initialize Schema and Tables
+        session.execute(text("CREATE SCHEMA IF NOT EXISTS ai;"))
+        
+        # Drop existing tables to start clean to avoid foreign key or stale data issues
+        # Order matters for drops if FKs existed, but here we just drop cascade to be safe
+        tables = [
+            "warehouse_stock", "warehouse_movements", "warehouse_locations",
+            "shipmission_todo", "shipmission_done", "batch", "product", "warehouse"
+        ]
+        for t in tables:
+            session.execute(text(f"DROP TABLE IF EXISTS ai.{t} CASCADE"))
+        session.commit()
+            
+        # Execute DDL
+        ddl_path = os.path.join(os.path.dirname(__file__), 'wms_ddl.txt')
+        if os.path.exists(ddl_path):
+            with open(ddl_path, 'r') as f:
+                raw_ddl = f.read()
+                stmts = raw_ddl.split(';')
+                for stmt in stmts:
+                    if stmt.strip():
+                        session.execute(text(stmt))
+        session.commit()
+        logger.info("Schema and Tables created.")
+        
+        # 2. Generate Base Data
+        # Warehouses
+        warehouses = [
+            (1, "Main DC", "Central Distribution Center"),
+            (2, "Regional Hub North", "North Region Support"),
+            (3, "Overflow Storage", "Seasonal Buffer")
+        ]
+        for w in warehouses:
+            session.execute(text("INSERT INTO ai.warehouse (warehouse_id, warehouse_name, warehouse_description) VALUES (:id, :name, :desc)"), 
+                            {"id": w[0], "name": w[1], "desc": w[2]})
+            
+        # Products (50 items) - Assign ABC categories implicitly by ID range
+        # 1-10: Class A (High Volume) -> We will skew movements towards these
+        # 11-30: Class B (Medium Volume)
+        # 31-50: Class C (Low Volume)
+        products = []
+        for i in range(1, 51):
+            p_code = f"P{i:03d}"
+            adjectives = ["Super", "Ultra", "Eco", "Smart", "Pro", "Max", "Mini"]
+            nouns = ["Widget", "Gadget", "Device", "Module", "Sensor", "Controller", "Panel"]
+            desc = f"{random.choice(adjectives)} {random.choice(nouns)} {i}"
+            products.append((i, p_code, desc))
+            session.execute(text("INSERT INTO ai.product (product_id, product_code, product_description) VALUES (:id, :code, :desc)"),
+                            {"id": i, "code": p_code, "desc": desc})
+            
+        # Locations (Bins)
+        locations = []
+        loc_id_counter = 1
+        for w in warehouses:
+            w_id = w[0]
+            # Generate about 60 locations per warehouse
+            for zone in ['A', 'B', 'C']:
+                for aisle in range(1, 6): # 5 aisles
+                    for bay in range(1, 5): # 4 bays
+                         curr_id = loc_id_counter
+                         loc_code = f"{zone}-{aisle:02d}-{bay:02d}"
+                         behavior = "PICKING" if zone == 'A' else "BUFFER"
+                         if zone == 'C': behavior = "QUARANTINE"
+                         
+                         locations.append((curr_id, loc_code, w_id, w[1], behavior))
+                         session.execute(text("""
+                            INSERT INTO ai.warehouse_locations 
+                            (location_id, location_code, warehouse_id, warehouse_name, location_behavior, shelf_code, floor_code, box_code)
+                            VALUES (:id, :code, :wid, :wname, :beh, :shelf, :floor, :box)
+                         """), {
+                             "id": curr_id, "code": loc_code, "wid": w_id, "wname": w[1], "beh": behavior,
+                             "shelf": f"{zone}-{aisle:02d}", "floor": "0", "box": str(bay)
+                         })
+                         loc_id_counter += 1
+                         
+        # Batches
+        batches = []
+        batch_id_counter = 1
+        for p in products:
+            # Create 2-5 batches per product
+            for _ in range(random.randint(2, 5)):
+                b_id = batch_id_counter
+                b_code = f"LOT-{datetime.now().year}-{b_id:04d}"
+                # Mix of expiry dates
+                is_expired = random.random() < 0.1 # 10% chance expired
+                if is_expired:
+                    exp_date = datetime.now() - timedelta(days=random.randint(10, 300))
+                else:
+                    exp_date = datetime.now() + timedelta(days=random.randint(30, 600))
+                
+                incoming = datetime.now() - timedelta(days=random.randint(50, 400))
+                is_blocked = 1 if (is_expired or random.random() < 0.05) else 0
+                
+                batches.append((b_id, b_code, exp_date, incoming, is_blocked, p[0], p[1], p[2]))
+                session.execute(text("""
+                    INSERT INTO ai.batch 
+                    (batch_id, batch_code, expire_date, incoming_date, is_blocked, product_id, product_code, product_description)
+                    VALUES (:id, :code, :exp, :inc, :blk, :pid, :pcode, :pdesc)
+                """), {
+                    "id": b_id, "code": b_code, "exp": exp_date, "inc": incoming, "blk": is_blocked,
+                    "pid": p[0], "pcode": p[1], "pdesc": p[2]
+                })
+                batch_id_counter += 1
+        session.commit()
+                
+        # 3. Stock Snapshot (Current State)
+        count_stock = 0
+        for w in warehouses:
+            # Pick locations in this warehouse
+            w_locs = [l for l in locations if l[2] == w[0]]
+            for p in products:
+                # Randomly place product in this warehouse
+                if random.random() < 0.7:
+                    p_batches = [b for b in batches if b[5] == p[0]]
+                    for b in p_batches:
+                        if random.random() < 0.6: # Batch is present
+                            qty = random.randint(5, 500)
+                            # C Class items (id > 30) - some have very high stock (High Availability)
+                            if p[0] > 30 and random.random() < 0.3: 
+                                qty = random.randint(1000, 2000)
+                            
+                            # Stockout risk (<10 items) scenarios
+                            if random.random() < 0.15: 
+                                qty = random.randint(0, 9)
+                            
+                            loc = random.choice(w_locs)
+                            
+                            session.execute(text("""
+                                INSERT INTO ai.warehouse_stock
+                                (warehouse_id, warehouse_name, location_id, location_code, 
+                                 product_id, product_code, product_description, 
+                                 batch_id, batch_code, batch_expire_date, stock_quantity, measure_unit)
+                                VALUES (:wid, :wname, :lid, :lcode, :pid, :pcode, :pdesc, :bid, :bcode, :bexp, :qty, 'PZ')
+                            """), {
+                                "wid": w[0], "wname": w[1], "lid": loc[0], "lcode": loc[1],
+                                "pid": p[0], "pcode": p[1], "pdesc": p[2],
+                                "bid": b[0], "bcode": b[1], "bexp": b[2], "qty": qty
+                            })
+                            count_stock += 1
+        session.commit()
+                            
+        # 4. Movements History (Last 18 months)
+        # To answer: "Movements per day", "Top 3 moved products semester compare", "Locations most moved"
+        start_date = datetime.now() - timedelta(days=540)
+        curr_date = start_date
+        
+        movements_count = 0
+        while curr_date < datetime.now():
+            daily_moves = random.randint(5, 25)
+            
+            for _ in range(daily_moves):
+                # Pick a product. Bias towards Class A (1-10) for ABC analysis
+                r = random.random()
+                if r < 0.6: pid = random.randint(1, 10) # 60% of moves are top 10 products
+                elif r < 0.9: pid = random.randint(11, 30)
+                else: pid = random.randint(31, 50)
+                
+                # Verify product exists in our list (it should)
+                p_list = [x for x in products if x[0] == pid]
+                if not p_list: continue
+                p = p_list[0]
+                
+                p_batches = [b for b in batches if b[5] == pid]
+                if not p_batches: continue
+                b = random.choice(p_batches)
+                
+                w = random.choice(warehouses)
+                w_locs = [l for l in locations if l[2] == w[0]]
+                if not w_locs: continue
+                loc = random.choice(w_locs)
+                
+                move_qty = random.randint(1, 50)
+                
+                # Seasonality for semester comparison (Top products)
+                # If product is 1, 2, or 3 -> Make them move more in different semesters
+                month = curr_date.month
+                if pid == 1: # High in Semester 1
+                    if month <= 6: move_qty *= 2
+                elif pid == 2: # High in Semester 2
+                    if month > 6: move_qty *= 2
+                    
+                sign = 1 if random.random() < 0.5 else -1 # In or Out
+                # Logic for "Stock drops in last 12 weeks"
+                # Last 12 weeks: 12 * 7 = 84 days
+                days_ago = (datetime.now() - curr_date).days
+                if days_ago < 84 and random.random() < 0.3:
+                     sign = -1 # Force more drops
+                     
+                m_type = 101 if sign == 1 else 201
+                
+                session.execute(text("""
+                    INSERT INTO ai.warehouse_movements
+                    (movement_date, warehouse_id, warehouse_name, location_id, location_code,
+                     product_id, product_code, product_description, batch_id, batch_code,
+                     movement_type, movement_sign, movement_quantity, measure_unit, movement_user_name)
+                    VALUES (:date, :wid, :wname, :lid, :lcode, :pid, :pcode, :pdesc, :bid, :bcode, :type, :sign, :qty, 'PZ', 'OpBot')
+                """), {
+                    "date": curr_date + timedelta(hours=random.randint(8, 17), minutes=random.randint(0, 59)),
+                    "wid": w[0], "wname": w[1], "lid": loc[0], "lcode": loc[1],
+                    "pid": p[0], "pcode": p[1], "pdesc": p[2],
+                    "bid": b[0], "bcode": b[1],
+                    "type": m_type, "sign": sign, "qty": move_qty
+                })
+                movements_count += 1
+                
+            curr_date += timedelta(days=1)
+        session.commit()
+            
+        # 5. Shipping Missions (Completed)
+        # For: "Missions per shipping zone month by month"
+        zones = ["North-East", "West-Coast", "Central", "South", "International"]
+        mission_date = datetime.now() - timedelta(days=365) # Last year
+        mission_id = 1
+        
+        missions_count = 0
+        while mission_date < datetime.now():
+            if random.random() < 0.7: # 70% chance of missions on a day
+                for _ in range(random.randint(1, 5)):
+                    zone = random.choice(zones)
+                    p = random.choice(products)
+                    qty = random.randint(10, 100)
+                    
+                    session.execute(text("""
+                        INSERT INTO ai.shipmission_done
+                        (mission_id, mission_name, mission_date, delivery_date, shipping_date,
+                         product_id, product_code, product_description, quantity_to_ship, shipped_quantity,
+                         shipping_zone, shipping_state, row_is_shipped, shipper_name)
+                        VALUES (:mid, :mname, :mdate, :ddate, :sdate, :pid, :pcode, :pdesc, :qty, :qty, :zone, 'State', 1, 'DHL')
+                    """), {
+                        "mid": mission_id, "mname": f"ORD-{mission_id}", 
+                        "mdate": mission_date, "ddate": mission_date + timedelta(days=2), "sdate": mission_date + timedelta(days=1),
+                        "pid": p[0], "pcode": p[1], "pdesc": p[2], "qty": qty, "zone": zone
+                    })
+                    mission_id += 1
+                    missions_count += 1
+            mission_date += timedelta(days=1)
+            
+        # 6. Current Pending Missions
+        for i in range(1, 21):
+             p = random.choice(products)
+             zone = random.choice(zones)
+             session.execute(text("""
+                INSERT INTO ai.shipmission_todo
+                (mission_id, mission_name, mission_date, delivery_date, product_id, product_code, product_description, quantity, shipping_zone)
+                VALUES (:mid, :mname, NOW(), NOW() + INTERVAL '2 days', :pid, :pcode, :pdesc, :qty, :zone)
+             """), {
+                 "mid": mission_id + i, "mname": f"PEND-{i}", 
+                 "pid": p[0], "pcode": p[1], "pdesc": p[2],
+                 "qty": random.randint(10, 100), "zone": zone
+             })
+        session.commit()
+             
+        logger.info(f"Data Generation Summary: {len(products)} products, {count_stock} stock entries, {movements_count} movements, {missions_count} completed missions.")
+        logger.info("--- Physical Data Seeding Completed ---")
+
+    except Exception as e:
+        session.rollback()
+        logger.error(f"Seeding Failed: {e}")
+        raise
+    finally:
+        session.close()
 
 # ============================================================================
 # LOGIC
@@ -489,4 +763,5 @@ def seed_wms_metadata():
         session.close()
 
 if __name__ == "__main__":
+    seed_physical_wms_data()
     seed_wms_metadata()

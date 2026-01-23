@@ -86,27 +86,105 @@ async def pruner_worker_node(state):
     ds = copy.deepcopy(state["working_datasource"])
     
     pruned_count = 0
-    targets = [t.identifier for t in plan.targets]
     
-    if targets:
-        adapter.debug(f"Pruning targets: {targets}")
-        original_count = len(ds.get("tables", []))
-        
-        # Pruning Logic: Remove tables if their slug or name is in targets
-        # Note: This is a simplistic implementation. A robust one would handle columns/metrics pruning too.
+    # Organize targets by type for efficient processing
+    targets_by_type = {}
+    for t in plan.targets:
+        if t.entity_type not in targets_by_type:
+            targets_by_type[t.entity_type] = set()
+        targets_by_type[t.entity_type].add(t.identifier)
+
+    # 1. Prune Tables
+    if "tables" in targets_by_type:
+        table_targets = targets_by_type["tables"]
+        original_tables = len(ds.get("tables", []))
         ds["tables"] = [
             t for t in ds.get("tables", []) 
-            if t.get("name") not in targets and t["slug"] not in targets and t.get("physical_name") not in targets
+            if t.get("name") not in table_targets 
+            and t["slug"] not in table_targets 
+            and t.get("physical_name") not in table_targets
         ]
+        pruned_count += (original_tables - len(ds["tables"]))
+
+    # 2. Prune Columns
+    if "columns" in targets_by_type:
+        col_targets = targets_by_type["columns"]
+        for table in ds.get("tables", []):
+            if "columns" in table:
+                original_cols = len(table["columns"])
+                table["columns"] = [
+                    c for c in table["columns"]
+                    if c.get("name") not in col_targets 
+                    and c["slug"] not in col_targets
+                ]
+                pruned_count += (original_cols - len(table["columns"]))
+
+    # 3. Prune Metrics
+    if "metrics" in targets_by_type:
+        metric_targets = targets_by_type["metrics"]
+        original_metrics = len(ds.get("metrics", []))
+        ds["metrics"] = [
+            m for m in ds.get("metrics", [])
+            if m.get("name") not in metric_targets and m["slug"] not in metric_targets
+        ]
+        pruned_count += (original_metrics - len(ds["metrics"]))
+
+    # 4. Prune Edges (Relationships)
+    if "edges" in targets_by_type:
+        edge_targets = targets_by_type["edges"]
+        original_edges = len(ds.get("edges", []))
+        ds["edges"] = [
+            e for e in ds.get("edges", [])
+            if str(e.get("id")) not in edge_targets # ID is usually safe
+            and e.get("slug") not in edge_targets
+        ]
+        pruned_count += (original_edges - len(ds["edges"]))
+
+    # 5. Prune Golden SQLs
+    if "golden_sqls" in targets_by_type:
+        gsql_targets = targets_by_type["golden_sqls"]
+        original_gsqls = len(ds.get("golden_sqls", []))
+        ds["golden_sqls"] = [
+            g for g in ds.get("golden_sqls", [])
+            if str(g.get("id")) not in gsql_targets
+            and g.get("prompt") not in gsql_targets # Sometimes prompts are used as identifiers
+        ]
+        pruned_count += (original_gsqls - len(ds["golden_sqls"]))
         
-        pruned_count = original_count - len(ds["tables"])
-        adapter.info(f"Pruned {pruned_count} tables from context.")
+    # 6. Prune Low Cardinality Values (from Context Rules or Columns?)
+    # Usually these are attached to columns. If the request is to prune values, we might need to clear nominal_values.
+    # Implementation depends on where they are stored. Usually in column['nominal_values'].
+    if "low_cardinality_values" in targets_by_type:
+        lcv_targets = targets_by_type["low_cardinality_values"]
+        # This is tricky because LCVs are lists inside columns.
+        # We assume identifier points to the column slug from which to remove values, or the value itself?
+        # For now, if a column slug is targeted here, we clear its nominal_values.
+        for table in ds.get("tables", []):
+            for col in table.get("columns", []):
+                if col["slug"] in lcv_targets or col.get("name") in lcv_targets:
+                     col["nominal_values"] = []
+                     pruned_count += 1
     
+    # 7. Prune Context Rules
+    if "context_rules" in targets_by_type:
+        rule_targets = targets_by_type["context_rules"]
+        for table in ds.get("tables", []):
+            for col in table.get("columns", []):
+                if "context_rules" in col and col["context_rules"]:
+                    original_rules = len(col["context_rules"])
+                    col["context_rules"] = [
+                        r for r in col["context_rules"]
+                        if r.get("slug") not in rule_targets
+                        and r.get("rule_text") not in rule_targets
+                    ]
+                    pruned_count += (original_rules - len(col["context_rules"]))
+    
+    adapter.info(f"Pruned {pruned_count} items from context.")
     log_state_transition(adapter, "pruner_worker_node", {"pruned_count": pruned_count})
 
     return {
         "working_datasource": ds,
-        "local_logs": state.get("local_logs", []) + [f"Pruned {pruned_count} tables."]
+        "local_logs": state.get("local_logs", []) + [f"Pruned {pruned_count} items."]
     }
 
 async def fetch_worker_node(state):
@@ -160,8 +238,30 @@ async def fetch_worker_node(state):
                 if len(parts) >= 2:
                     src_f = parts[0].strip()
                     tgt_f = parts[1].strip()
-                    adapter.info(f"🔄 Parsed join targets from identifier: {src_f} <-> {tgt_f}")
-                    results = await search_graph_paths(src_f, tgt_f, ds_slug, **filters)
+                    
+                    # Try to resolve semantic/physical names to slugs from current context
+                    current_tables = state["working_datasource"].get("tables", [])
+                    
+                    def resolve_slug(name_or_slug):
+                        # 1. Check if it matches a slug exactly
+                        for t in current_tables:
+                            if t["slug"] == name_or_slug:
+                                return t["slug"]
+                        # 2. Check physical name
+                        for t in current_tables:
+                            if t.get("physical_name") == name_or_slug:
+                                return t["slug"]
+                        # 3. Check semantic name
+                        for t in current_tables:
+                            if t.get("name") == name_or_slug: # name often holds semantic name in some contexts
+                                return t["slug"]
+                        return name_or_slug # Fallback
+
+                    src_resolved = resolve_slug(src_f)
+                    tgt_resolved = resolve_slug(tgt_f)
+
+                    adapter.info(f"🔄 Parsed join targets: {src_f} -> {src_resolved} <-> {tgt_f} -> {tgt_resolved}")
+                    results = await search_graph_paths(src_resolved, tgt_resolved, ds_slug, **filters)
                 else:
                     msg = f"Error: Missing source/target params for join_path. Identifier was: {target.identifier}"
                     adapter.error(msg)
@@ -199,7 +299,7 @@ async def fetch_worker_node(state):
 
 async def generate_blueprint_node(state, llm):
     """
-    Generates the final discursive blueprint.
+    Genera il piano discorsivo finale.
     """
     start_time = time.time()
     adapter = NodeLoggerAdapter(logger, {"node": "generate_blueprint_node"})
@@ -208,7 +308,7 @@ async def generate_blueprint_node(state, llm):
     ds = state["working_datasource"]
     question = state["question"]
     
-    # Prepare context
+    # Prepariamo il contesto
     context_md = ContextFormatter.to_markdown(ds)
     notes = "\n".join(ds.get("enrichment_notes", []))
     
@@ -243,7 +343,7 @@ async def generate_blueprint_node(state, llm):
         prompt=prompt_str
     )
     
-    # Save to 'final_logical_plan'
+    # Salviamo nel campo 'final_logical_plan'
     return {
         "final_logical_plan": blueprint,
         "local_logs": state.get("local_logs", []) + ["Blueprint generated."]

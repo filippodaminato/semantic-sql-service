@@ -12,7 +12,14 @@ Your goal is to prepare the **Perfect Database Context** for an SQL generator.
 
 **YOUR REASONING PROCESS (Chain of Thought):**
 1. **Analyze Intent:** What entities (e.g., Customers) and metrics (e.g., Spending) are required?
-2. **Audit Schema (Noise):** Are there tables in the workspace that are completely irrelevant? (e.g., 'HR_Employees' for a 'Sales' question).
+2. **Audit Schema (Noise):** Are there schema elements in the workspace that are completely irrelevant? (e.g., 'HR_Employees' for a 'Sales' question).
+   - **Tables:** Remove physical tables that are not needed (e.g., 'logs', 'audit_trails').
+   - **Columns:** Remove specific columns if they cause confusion (e.g., duplicate IDs, binary blobs, unused attributes).
+   - **Metrics:** Remove semantic metrics that calculate wrong things for this context (e.g., 'Gross Churn' when asked for 'Net Churn').
+   - **Context Rules:** Remove business rules that don't apply to this specific question context.
+   - **Low Cardinality Values:** Remove nominal value lists if they are distracting or not relevant to filters.
+   - **Golden SQL:** Remove example queries that are misleading or solve a different problem.
+   - **Edges:** Remove relationships (joins) that are not relevant or create ambiguity (e.g., transitive paths).
 3. **Audit Schema (Gaps):**
    - **Missing Values:** Does the user mention a specific filter (e.g., "Premium Users") but you don't know the column value? -> Need FETCH 'value'.
    - **Missing Paths:** Do you have two necessary tables (e.g., 'Orders', 'Shipments') but don't know the JOIN condition? -> Need FETCH 'join_path'.
@@ -59,6 +66,7 @@ You requested a search (Fetch) to clarify the database schema. Now you must eval
 **OUTPUT:**
 - If a result is valid, create a **context_note**. This note will be treated as Absolute Truth by the SQL Generator.
 - The note must be concise and directive. (e.g., "NOTE: Filter region using values: 'Veneto', 'Lombardia'").
+- **IMPORTANT:** ALWAYS use the **Physical Name** of tables and columns in your notes (e.g., use `wms_warehouse_locations`, not "Warehouse Locations"). Never use semantic names.
 """
 
 def build_evaluator_chain(llm):
@@ -84,6 +92,7 @@ DO NOT WRITE SQL CODE. WRITE LOGIC.
 2. **Steps:** Break down the logic sequentially.
 3. **Filters:** Explicitly list the values we have confirmed (e.g. from the 'enrichment_notes').
 4. **Warnings:** If the schema has tricky column names or specific join paths found by the Evaluator, mention them here.
+5. **Naming Convention:** ALWAYS refer to tables and columns by their **Physical Name** (e.g., `wms_products`) as defined in the schema. Do not use semantic names or slugs unless they match the physical name.
 
 User Question: {question}
 """

@@ -2,8 +2,8 @@ from typing import List, Dict, Any
 import httpx
 
 
-# IMPORTANT: Always include datasource_slug: {current_datasource_slug} in the payload.
-# Also, some APIs support filters like table_slug: {table_slug}, include them in payload and inform LLM.
+# NOTA IMPORTANTE NEL PAYLOAD METTERE SEMPRE datasource_slug: {current_datasource_slug}
+# Inoltre alcune api hanno la possibilità di aggiungere filtri tipo table_slug: {table_slug} va messo in payload e detto all'LLM
 BASE_URL = "http://localhost:8000/api/v1/discovery"
 
 async def _post(endpoint: str, payload: Dict[str, Any]) -> Any:
@@ -75,14 +75,14 @@ async def search_graph_paths(source: str, target: str, datasource_slug: str, **k
     print(f"🔗 [TOOL] Finding paths: {source} <-> {target} in {datasource_slug}")
     
     payload = {
-        "source_table": source,
-        "target_table": target,
+        "source_table_slug": source,
+        "target_table_slug": target,
         "datasource_slug": datasource_slug
     }
     payload.update(kwargs)
     
     try:
-        res = await _post("/join_paths", payload)
+        res = await _post("/paths", payload)
         if not res or "paths" not in res: 
              return [f"No join paths found between {source} and {target}."]
         
