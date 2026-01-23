@@ -6,26 +6,26 @@ import sys
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
 
-# Imports interni
+# Internal Imports
 from core.state import AgentState
 from core.logger import setup_logger
-from core.graph import build_main_graph # Assumiamo che il main graph sia qui
+from core.graph import build_main_graph # Assuming main graph is here
 
 # Load env
 load_dotenv()
 
 def parse_args():
     parser = argparse.ArgumentParser(description="AI SQL Agent CLI")
-    parser.add_argument("query", type=str, nargs='?', help="La domanda da porre al database")
-    parser.add_argument("--model", type=str, default="gpt-4o", help="Modello LLM da usare")
-    parser.add_argument("--verbose", action="store_true", help="Stampa tutto anche in console")
+    parser.add_argument("query", type=str, nargs='?', help="The question to ask the database")
+    parser.add_argument("--model", type=str, default="gpt-4o", help="LLM model to use")
+    parser.add_argument("--verbose", action="store_true", help="Print everything to console")
     return parser.parse_args()
 
 async def main():
     # 1. Parsing Input
     args = parse_args()
     
-    # Modalità interattiva se non c'è query
+    # Interactive mode if no query
     query = args.query
     if not query:
         print("🤖 Enter your query:")
@@ -42,7 +42,7 @@ async def main():
     # 3. Setup Agent
     try:
         llm = ChatOpenAI(model=args.model, temperature=0)
-        app = build_main_graph(llm) # Il tuo costruttore del grafo
+        app = build_main_graph(llm) # Your graph constructor
     except Exception as e:
         logger.critical("Failed to build graph", exc_info=True)
         sys.exit(1)
@@ -66,13 +66,13 @@ async def main():
     try:
         async for event in app.astream(initial_state):
             for node_name, state_update in event.items():
-                # Feedback visivo minimale in console
+                # Minimal visual feedback in console
                 print(f"✅ [{node_name}] completed.")
                 
                 # Update local state tracking
                 final_state.update(state_update)
                 
-                # Se c'è un errore critico nello stato, fermiamo tutto
+                # If critical error in state, stop
                 if state_update.get("error"):
                     logger.error(f"Stopped due to error: {state_update['error']}")
                     break

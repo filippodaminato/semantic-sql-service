@@ -40,6 +40,14 @@ class AgentContextFormatter:
             if description:
                 ds_block.append(f"- **Usage**: {description} \n")
             
+            # 1b. Enrichment Notes (Added by Refinement Agent)
+            enrichment_notes = cls._get_val(ds, "enrichment_notes", [])
+            if enrichment_notes:
+                ds_block.append("### 🧠 Refinement Notes (Absolute Truths):")
+                for note in enrichment_notes:
+                    ds_block.append(f"- {note}")
+                ds_block.append("\n")
+            
             # 2. Livello Tabelle
             tables = cls._get_val(ds, "tables", [])
             if tables:
@@ -139,6 +147,20 @@ class AgentContextFormatter:
 
             blocks.append("\n".join(ds_block))
             
-        # Uniamo tutto in una singola stringa
-        return "\n".join(blocks)
+        return "\n\n".join(blocks)
+            
+    @classmethod
+    def to_markdown(cls, datasource: Any) -> str:
+        """
+        Formats a single datasource object/dict to Markdown.
+        """
+        # We can reuse the logic by wrapping it in a fake graph structure
+        # or extracting the loop body. For simplicity, let's extract logic if possible
+        # but wrapping is faster for now to reuse code.
+        
+        # However, to be robust, let's copy the logic or refactor.
+        # Let's wrap it since format_resolved_context expects {graph: [ds]}
+        
+        wrapper = {"graph": [datasource]}
+        return cls.format_resolved_context(wrapper)
 

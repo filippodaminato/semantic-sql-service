@@ -146,9 +146,16 @@ async def select_datasource_node(state, llm):
             
     if not selected_ds_obj:
         adapter.warning(f"⚠️ Selected Datasource '{selection.selected_datasource_name}' not found in API response graph.")
-        # Fallback to name or minimal dict if not found, or let it be None/Name
-        # User requested object, so if missing, maybe we maintain name or Partial dict
-        selected_ds_obj = {"name": selection.selected_datasource_name, "error": "Object not found in graph"}
+        
+        # FALLBACK STRATEGY:
+        # If the LLM failed to match, or said N/A, but we HAVE results from search, 
+        # let's pick the first one as a best-effort guess (since search found it relevant).
+        if graph_list:
+            selected_ds_obj = graph_list[0]
+            adapter.info(f"🔄 Fallback: Defaulting to first available datasource: {selected_ds_obj.get('name')}")
+        else:
+            # User requested object, so if missing, maybe we maintain name or Partial dict
+            selected_ds_obj = {"name": selection.selected_datasource_name, "error": "Object not found in graph", "slug": "default"}
 
     return {
         "selection": selection,

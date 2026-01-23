@@ -21,6 +21,7 @@ class AgentState(TypedDict):
     
     # --- PHASE 2 OUTPUT: REFINEMENT ---
     refined_datasource: Optional[Dict[str, Any]]
+    logical_query_plan: Optional[Dict[str, Any]]
     
     # --- PHASE 3 OUTPUT: GENERATION ---
     final_sql: Optional[str]
