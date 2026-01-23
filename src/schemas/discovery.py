@@ -37,6 +37,7 @@ class DiscoverySearchRequest(BaseModel):
     query: str
     page: Optional[int] = Field(default=1, ge=1, description="Page number (1-indexed)")
     limit: Optional[int] = Field(default=10, ge=1, le=1000, description="Number of items per page (max 1000)")
+    min_ratio_to_best: Optional[float] = Field(default=None, ge=0.0, le=1.0, description="Filter results with score < best_score * min_ratio")
 
 class DatasourceSearchResult(BaseModel):
     """Complete datasource information returned by search."""
@@ -58,6 +59,7 @@ class GoldenSQLSearchRequest(BaseModel):
     datasource_slug: Optional[str] = None
     page: Optional[int] = Field(default=1, ge=1, description="Page number (1-indexed)")
     limit: Optional[int] = Field(default=10, ge=1, le=1000, description="Number of items per page (max 1000)")
+    min_ratio_to_best: Optional[float] = Field(default=None, ge=0.0, le=1.0, description="Filter results with score < best_score * min_ratio")
 
 class GoldenSQLResult(BaseModel):
     """Golden SQL example result."""
@@ -83,6 +85,7 @@ class TableSearchRequest(BaseModel):
     datasource_slug: Optional[str] = None
     page: Optional[int] = Field(default=1, ge=1, description="Page number (1-indexed)")
     limit: Optional[int] = Field(default=10, ge=1, le=1000, description="Number of items per page (max 1000)")
+    min_ratio_to_best: Optional[float] = Field(default=None, ge=0.0, le=1.0, description="Filter results with score < best_score * min_ratio")
 
 class TableSearchResult(BaseModel):
     """Complete table information returned by search."""
@@ -106,6 +109,7 @@ class ColumnSearchRequest(BaseModel):
     table_slug: Optional[str] = None
     page: Optional[int] = Field(default=1, ge=1, description="Page number (1-indexed)")
     limit: Optional[int] = Field(default=10, ge=1, le=1000, description="Number of items per page (max 1000)")
+    min_ratio_to_best: Optional[float] = Field(default=None, ge=0.0, le=1.0, description="Filter results with score < best_score * min_ratio")
 
 class ColumnSearchResult(BaseModel):
     """Complete column information returned by search."""
@@ -132,6 +136,7 @@ class EdgeSearchRequest(BaseModel):
     table_slug: Optional[str] = None
     page: Optional[int] = Field(default=1, ge=1, description="Page number (1-indexed)")
     limit: Optional[int] = Field(default=10, ge=1, le=1000, description="Number of items per page (max 1000)")
+    min_ratio_to_best: Optional[float] = Field(default=None, ge=0.0, le=1.0, description="Filter results with score < best_score * min_ratio")
 
 class EdgeSearchResult(BaseModel):
     """Complete relationship/edge information returned by search."""
@@ -159,6 +164,7 @@ class MetricSearchRequest(BaseModel):
     datasource_slug: Optional[str] = None
     page: Optional[int] = Field(default=1, ge=1, description="Page number (1-indexed)")
     limit: Optional[int] = Field(default=10, ge=1, le=1000, description="Number of items per page (max 1000)")
+    min_ratio_to_best: Optional[float] = Field(default=None, ge=0.0, le=1.0, description="Filter results with score < best_score * min_ratio")
 
 class MetricSearchResult(BaseModel):
     """Complete metric information returned by search."""
@@ -182,6 +188,7 @@ class SynonymSearchRequest(BaseModel):
     datasource_slug: Optional[str] = None
     page: Optional[int] = Field(default=1, ge=1, description="Page number (1-indexed)")
     limit: Optional[int] = Field(default=10, ge=1, le=1000, description="Number of items per page (max 1000)")
+    min_ratio_to_best: Optional[float] = Field(default=None, ge=0.0, le=1.0, description="Filter results with score < best_score * min_ratio")
 
 class SynonymSearchResult(BaseModel):
     """Complete synonym information returned by search."""
@@ -202,6 +209,7 @@ class ContextRuleSearchRequest(BaseModel):
     table_slug: Optional[str] = None
     page: Optional[int] = Field(default=1, ge=1, description="Page number (1-indexed)")
     limit: Optional[int] = Field(default=10, ge=1, le=1000, description="Number of items per page (max 1000)")
+    min_ratio_to_best: Optional[float] = Field(default=None, ge=0.0, le=1.0, description="Filter results with score < best_score * min_ratio")
 
 class ContextRuleSearchResult(BaseModel):
     """Complete context rule information returned by search."""
@@ -229,6 +237,7 @@ class LowCardinalityValueSearchRequest(BaseModel):
     column_slug: Optional[str] = None
     page: Optional[int] = Field(default=1, ge=1, description="Page number (1-indexed)")
     limit: Optional[int] = Field(default=10, ge=1, le=1000, description="Number of items per page (max 1000)")
+    min_ratio_to_best: Optional[float] = Field(default=None, ge=0.0, le=1.0, description="Filter results with score < best_score * min_ratio")
 
 class LowCardinalityValueSearchResult(BaseModel):
     """Complete low cardinality value information returned by search."""
@@ -297,6 +306,7 @@ class GraphPathResult(BaseModel):
 
 class MCPResponse(BaseModel):
     """Response wrapper for Model Context Protocol (MCP) formatted strings."""
+    res: str
 
 # =============================================================================
 # 11. Context Resolution (Unified Batch Execution)
@@ -321,6 +331,7 @@ class ContextSearchItem(BaseModel):
     """Single item in the batch context search request."""
     entity: ContextSearchEntity
     search_text: str
+    min_ratio_to_best: Optional[float] = None
 
 class ResolvedColumn(ColumnSearchResult):
     """Column with nested context details."""

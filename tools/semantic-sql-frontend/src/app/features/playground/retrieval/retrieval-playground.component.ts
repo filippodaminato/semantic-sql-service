@@ -111,6 +111,14 @@ import { JsonPipe } from '@angular/common';
                        <input matInput type="number" [(ngModel)]="limit" min="1" max="100" (change)="onLimitChange()">
                      </mat-form-field>
                   </div>
+                  
+                  <!-- Min Ratio -->
+                  <div class="space-y-1">
+                     <label class="text-xs font-mono text-gray-500 uppercase tracking-wider ml-1">Min Ratio (0-1)</label>
+                     <mat-form-field appearance="outline" class="w-full custom-dark-field">
+                       <input matInput type="number" [(ngModel)]="minRatioToBest" min="0" max="1" step="0.05" (change)="clearResults()">
+                     </mat-form-field>
+                  </div>
 
                   <!-- Page (only show if pagination is available) -->
                   <div class="space-y-1" *ngIf="hasSearched() && pagination()">
@@ -362,6 +370,7 @@ export class RetrievalPlaygroundComponent {
     tableSlug = signal<string>('');
     columnSlug = signal<string>('');
     limit = signal<number>(10);
+    minRatioToBest = signal<number | undefined>(undefined);
     page = signal<number>(1);
 
     results = signal<any[]>([]);
@@ -404,7 +413,8 @@ export class RetrievalPlaygroundComponent {
             query: this.query(),
             page: this.page(),
             limit: this.limit(),
-            mcp: isMcp
+            mcp: isMcp,
+            min_ratio_to_best: this.minRatioToBest()
         };
 
         let obs;

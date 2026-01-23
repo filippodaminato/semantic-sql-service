@@ -11,6 +11,9 @@ import { MatCardModule } from '@angular/material/card';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { DiscoveryService, ContextSearchItem, ContextSearchEntity, ContextResolutionResponse } from '../../../core/services/discovery.service';
+import { MatButtonToggleModule } from '@angular/material/button-toggle';
+
+type ResponseMode = 'json' | 'mcp';
 
 @Component({
     selector: 'app-resolve-context-playground',
@@ -26,6 +29,7 @@ import { DiscoveryService, ContextSearchItem, ContextSearchEntity, ContextResolu
         MatCardModule,
         MatProgressSpinnerModule,
         MatTooltipModule,
+        MatButtonToggleModule,
         JsonPipe
     ],
     template: `
@@ -102,6 +106,15 @@ import { DiscoveryService, ContextSearchItem, ContextSearchEntity, ContextResolu
                                 <mat-icon matSuffix class="text-gray-500 scale-75">search</mat-icon>
                               </mat-form-field>
                           </div>
+                          
+                          <!-- Min Ratio -->
+                          <div class="w-full">
+                              <label class="text-xs font-mono text-gray-500 uppercase tracking-wider ml-1 mb-1 block">Min Ratio (0-1)</label>
+                              <mat-form-field appearance="outline" class="w-full custom-dark-field density-compact">
+                                <input matInput type="number" [(ngModel)]="item.min_ratio_to_best" placeholder="e.g. 0.75" min="0" max="1" step="0.05">
+                                <mat-icon matSuffix class="text-gray-500 scale-75">filter_alt</mat-icon>
+                              </mat-form-field>
+                          </div>
                       </div>
                   </div>
                </div>
@@ -132,9 +145,20 @@ import { DiscoveryService, ContextSearchItem, ContextSearchEntity, ContextResolu
                      <span *ngIf="hasSearched()" class="bg-cyan-500/10 text-cyan-400 text-xs px-2 py-0.5 rounded border border-cyan-500/20 font-mono">
                         {{ resultGraph()?.graph?.length || 0 }} Datasources
                      </span>
+                      <!-- View Toggle -->
+                      <div class="ml-4 border-l border-white/10 pl-4">
+                        <mat-button-toggle-group [ngModel]="responseMode()" (ngModelChange)="setResponseMode($event)" appearance="standard" class="custom-toggle-group">
+                           <mat-button-toggle value="json" matTooltip="Standard JSON Response">
+                              <span class="flex items-center gap-2 text-xs font-mono"><mat-icon class="scale-75 !w-4 !h-4 !text-base">data_object</mat-icon> JSON</span>
+                           </mat-button-toggle>
+                           <mat-button-toggle value="mcp" matTooltip="Model Context Protocol Text">
+                              <span class="flex items-center gap-2 text-xs font-mono"><mat-icon class="scale-75 !w-4 !h-4 !text-base">description</mat-icon> MCP</span>
+                           </mat-button-toggle>
+                        </mat-button-toggle-group>
+                      </div>
                   </div>
                   <div class="flex gap-2">
-                     <button mat-icon-button class="!text-gray-500 hover:!text-white transition-colors" matTooltip="Copy JSON" (click)="copyResults()">
+                     <button mat-icon-button class="!text-gray-500 hover:!text-white transition-colors" matTooltip="Copy" (click)="copyResults()">
                         <mat-icon class="text-sm">content_copy</mat-icon>
                      </button>
                      <button mat-icon-button class="!text-gray-500 hover:!text-white transition-colors" matTooltip="Clear" (click)="clearResults()">
@@ -165,12 +189,17 @@ import { DiscoveryService, ContextSearchItem, ContextSearchEntity, ContextResolu
                        <mat-icon class="text-5xl text-gray-700 mb-4">search_off</mat-icon>
                        <h3 class="text-lg font-bold text-gray-400">No context resolved</h3>
                        <p class="text-gray-600 mt-2">Try different search terms or types.</p>
-                   </div>
+                    </div>
 
-                   <!-- JSON View -->
-                   <div *ngIf="hasSearched() && resultGraph()?.graph?.length && !loading()" class="p-6">
-                       <pre class="font-mono text-sm text-cyan-300 leading-relaxed bg-[#0a0e14] p-6 rounded-xl border border-white/5 shadow-inner overflow-x-auto selection:bg-cyan-500/30 selection:text-white">{{ resultGraph() | json }}</pre>
-                   </div>
+                    <!-- JSON View -->
+                    <div *ngIf="hasSearched() && !loading() && responseMode() === 'json' && resultGraph()" class="p-6">
+                        <pre class="font-mono text-sm text-cyan-300 leading-relaxed bg-[#0a0e14] p-6 rounded-xl border border-white/5 shadow-inner overflow-x-auto selection:bg-cyan-500/30 selection:text-white">{{ resultGraph() | json }}</pre>
+                    </div>
+
+                    <!-- MCP View -->
+                    <div *ngIf="hasSearched() && !loading() && responseMode() === 'mcp' && mcpResult()" class="p-6">
+                        <div class="font-mono text-sm text-gray-300 leading-relaxed bg-[#0a0e14] p-6 rounded-xl border border-white/5 shadow-inner overflow-x-auto whitespace-pre-wrap selection:bg-cyan-500/30 selection:text-white">{{ mcpResult() }}</div>
+                    </div>
 
                    <!-- Error -->
                    <div *ngIf="error()" class="m-6 p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-200 flex gap-3 items-start">
@@ -231,6 +260,27 @@ import { DiscoveryService, ContextSearchItem, ContextSearchEntity, ContextResolu
         50% { transform: translateY(-10px); }
         100% { transform: translateY(0px); }
     }
+    @keyframes float {
+        0% { transform: translateY(0px); }
+        50% { transform: translateY(-10px); }
+        100% { transform: translateY(0px); }
+    }
+    
+    /* Toggle Group Overrides */
+    ::ng-deep .custom-toggle-group {
+        border: 1px solid rgba(255,255,255,0.1);
+        border-radius: 8px;
+        overflow: hidden;
+    }
+    ::ng-deep .custom-toggle-group .mat-button-toggle {
+        background-color: transparent;
+        color: #718096;
+        border-right: 1px solid rgba(255,255,255,0.1);
+    }
+    ::ng-deep .custom-toggle-group .mat-button-toggle-checked {
+        background-color: rgba(34, 211, 238, 0.1) !important;
+        color: #22d3ee !important;
+    }
     `]
 })
 export class ResolveContextPlaygroundComponent {
@@ -238,7 +288,7 @@ export class ResolveContextPlaygroundComponent {
 
     // List of input items
     items = signal<ContextSearchItem[]>([
-        { entity: 'tables', search_text: '' }
+        { entity: 'tables', search_text: '', min_ratio_to_best: undefined }
     ]);
 
     // Results
@@ -247,9 +297,17 @@ export class ResolveContextPlaygroundComponent {
     loading = signal<boolean>(false);
     error = signal<string | null>(null);
     hasSearched = signal<boolean>(false);
+    responseMode = signal<ResponseMode>('json');
+    mcpResult = signal<string | null>(null);
+
+    setResponseMode(mode: ResponseMode) {
+        this.responseMode.set(mode);
+        // Clear previous results when switching to avoid confusion, or implement smart caching
+        this.clearResults();
+    }
 
     addItem() {
-        this.items.update(items => [...items, { entity: 'tables', search_text: '' }]);
+        this.items.update(items => [...items, { entity: 'tables', search_text: '', min_ratio_to_best: undefined }]);
     }
 
     removeItem(index: number) {
@@ -263,26 +321,38 @@ export class ResolveContextPlaygroundComponent {
     }
 
     copyResults() {
-        if (this.resultGraph()) {
-            navigator.clipboard.writeText(JSON.stringify(this.resultGraph(), null, 2));
+        const content = this.responseMode() === 'json'
+            ? JSON.stringify(this.resultGraph(), null, 2)
+            : this.mcpResult();
+
+        if (content) {
+            navigator.clipboard.writeText(content);
         }
     }
 
     resolve() {
         if (this.items().some(i => !i.search_text.trim())) {
-            // Optional: warn user that empty queries might be ignored or return generic results
-            // But let's proceed.
+            // no-op
         }
 
         this.loading.set(true);
         this.error.set(null);
         this.resultGraph.set(null);
+        this.mcpResult.set(null);
 
         const start = performance.now();
+        const isMcp = this.responseMode() === 'mcp';
 
-        this.discoveryService.resolveContext(this.items()).subscribe({
+        this.discoveryService.resolveContext(this.items(), isMcp).subscribe({
             next: (data) => {
-                this.resultGraph.set(data);
+                if (isMcp) {
+                    this.mcpResult.set(data.res);
+                    // Mock graph result to avoid empty state triggering if needed, or handle separately
+                    // We can rely on mcpResult() check in template
+                } else {
+                    this.resultGraph.set(data);
+                }
+
                 this.resultTime.set(Math.round(performance.now() - start));
                 this.hasSearched.set(true);
                 this.loading.set(false);

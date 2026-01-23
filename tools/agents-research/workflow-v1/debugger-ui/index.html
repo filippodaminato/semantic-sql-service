@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Agent Workflow Chat Debugger</title>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <style>
+        :root {
+            --bg-color: #0d1117;
+            --text-color: #c9d1d9;
+            --border-color: #30363d;
+            --accent-color: #58a6ff;
+            --secondary-bg: #161b22;
+            --message-bg-system: #161b22;
+            --message-bg-agent: #1f2428;
+            --message-bg-user: #1c2128;
+            --success-color: #2ea043;
+            --warning-color: #d29922;
+            --error-color: #f85149;
+            --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+            --mono-font: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+        }
+
+        body {
+            font-family: var(--font-family);
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+
+        header {
+            background-color: var(--secondary-bg);
+            border-bottom: 1px solid var(--border-color);
+            padding: 1rem 2rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        h1 {
+            margin: 0;
+            font-size: 1.2rem;
+            font-weight: 600;
+        }
+
+        .controls {
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+        }
+
+        input[type="file"] {
+            color: var(--text-color);
+        }
+
+        #chat-container {
+            flex: 1;
+            overflow-y: auto;
+            padding: 2rem;
+            max-width: 900px;
+            margin: 0 auto;
+            width: 100%;
+            box-sizing: border-box;
+        }
+
+        .message-block {
+            margin-bottom: 2rem;
+            background-color: var(--message-bg-system);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            overflow: hidden;
+            animation: fadeIn 0.3s ease-in-out;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .message-header {
+            padding: 0.75rem 1rem;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background-color: rgba(255, 255, 255, 0.02);
+            font-size: 0.85rem;
+        }
+
+        .role-badge {
+            font-weight: 600;
+            padding: 2px 8px;
+            border-radius: 12px;
+            text-transform: uppercase;
+            font-size: 0.7rem;
+            margin-right: 8px;
+            display: inline-block;
+        }
+
+        .role-AGENT {
+            background-color: rgba(88, 166, 255, 0.2);
+            color: #58a6ff;
+        }
+
+        .role-SYSTEM {
+            background-color: rgba(139, 148, 158, 0.2);
+            color: #8b949e;
+        }
+
+        .role-USER {
+            background-color: rgba(46, 160, 67, 0.2);
+            color: #2ea043;
+        }
+
+        .timestamp {
+            color: #8b949e;
+            font-family: var(--mono-font);
+        }
+
+        .message-content {
+            padding: 1rem;
+        }
+
+        .content-section {
+            margin-bottom: 1rem;
+        }
+
+        .content-section:last-child {
+            margin-bottom: 0;
+        }
+
+        .content-label {
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: #8b949e;
+            margin-bottom: 0.5rem;
+            font-weight: 600;
+        }
+
+        /* Collapsible JSON */
+        .collapsible {
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            background-color: rgba(0, 0, 0, 0.2);
+        }
+
+        .collapsible-header {
+            padding: 0.5rem 1rem;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.85rem;
+            user-select: none;
+            background-color: rgba(255, 255, 255, 0.03);
+        }
+
+        .collapsible-header:hover {
+            background-color: rgba(255, 255, 255, 0.05);
+        }
+
+        .collapsible-content {
+            padding: 0;
+            display: none;
+            overflow-x: auto;
+            border-top: 1px solid var(--border-color);
+        }
+
+        .collapsible-content.open {
+            display: block;
+        }
+
+        .arrow {
+            transition: transform 0.2s;
+            font-size: 0.7rem;
+        }
+
+        .collapsible-content.open+.collapsible-header .arrow {
+            /* CSS logic handled in JS for simplicity, but keeping class based */
+        }
+
+        /* JSON Styling */
+        pre {
+            margin: 0;
+            padding: 1rem;
+            font-family: var(--mono-font);
+            font-size: 0.85rem;
+        }
+
+        .json-key {
+            color: #d2a8ff;
+        }
+
+        .json-string {
+            color: #a5d6ff;
+        }
+
+        .json-number {
+            color: #79c0ff;
+        }
+
+        .json-boolean {
+            color: #ff7b72;
+        }
+
+        .json-null {
+            color: #ff7b72;
+        }
+
+        /* Markdown Styling */
+        .markdown-body {
+            font-size: 0.95rem;
+            line-height: 1.6;
+        }
+
+        .markdown-body p {
+            margin-top: 0;
+        }
+
+        .markdown-body pre {
+            background-color: rgba(0, 0, 0, 0.3);
+            border-radius: 6px;
+            border: 1px solid var(--border-color);
+        }
+
+        /* Specific Node Colors */
+        .node-plan_search_node {
+            border-left: 3px solid #d2a8ff;
+        }
+
+        .node-execute_search_node {
+            border-left: 3px solid #58a6ff;
+        }
+
+        .node-select_datasource_node {
+            border-left: 3px solid #ffa657;
+        }
+    </style>
+</head>
+
+<body>
+
+    <header>
+        <h1>Agent Workflow Chat</h1>
+        <div class="controls">
+            <input type="file" id="fileInput" accept=".jsonl,.json">
+            <span id="status" style="font-size: 0.8rem; color: #8b949e;">No file loaded</span>
+        </div>
+    </header>
+
+    <div id="chat-container">
+        <div style="text-align: center; color: #8b949e; margin-top: 2rem;">
+            Load a JSONL log file to view the conversation.
+        </div>
+    </div>
+
+    <script>
+        const fileInput = document.getElementById('fileInput');
+        const chatContainer = document.getElementById('chat-container');
+        const status = document.getElementById('status');
+
+        fileInput.addEventListener('change', (event) => {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                try {
+                    const content = e.target.result;
+                    let logs = [];
+                    if (content.trim().startsWith('[')) {
+                        logs = JSON.parse(content);
+                    } else {
+                        logs = content.trim().split('\n')
+                            .filter(line => line.trim())
+                            .map(line => {
+                                try { return JSON.parse(line); } catch (err) { return null; }
+                            })
+                            .filter(l => l !== null);
+                    }
+
+                    status.textContent = `Loaded ${logs.length} events`;
+                    renderChat(logs);
+                } catch (error) {
+                    console.error('Error parsing file:', error);
+                    status.textContent = 'Error parsing file';
+                }
+            };
+            reader.readAsText(file);
+        });
+
+        function renderChat(logs) {
+            chatContainer.innerHTML = '';
+
+            if (logs.length === 0) {
+                chatContainer.innerHTML = '<div style="text-align: center; color: #8b949e;">No valid logs found.</div>';
+                return;
+            }
+
+            logs.forEach(log => {
+                const messageEl = document.createElement('div');
+                messageEl.className = 'message-block';
+
+                // Determine Role and Style
+                let role = 'SYSTEM';
+                if (log.node) role = 'AGENT';
+                // Simple heuristic for User input
+                if (log.message && log.message.includes('Queueing User Input')) role = 'USER';
+                if (log.name === 'agent_logger' && !log.node) role = 'SYSTEM';
+
+                // Add specific class for node coloring
+                if (log.node) messageEl.classList.add(`node-${log.node}`);
+
+                // 1. Header
+                const date = new Date(log.timestamp);
+                const timeStr = date.toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+                let title = log.message || 'Log Event';
+                if (log.node) title = `${log.node} <span style="color:#8b949e; font-weight:normal">(${log.event_type || 'step'})</span>`;
+
+                messageEl.innerHTML = `
+                <div class="message-header">
+                    <div>
+                        <span class="role-badge role-${role}">${role}</span>
+                        <strong style="font-size: 0.9rem;">${title}</strong>
+                    </div>
+                    <span class="timestamp">${timeStr}</span>
+                </div>
+            `;
+
+                // 2. Content Body
+                const bodyEl = document.createElement('div');
+                bodyEl.className = 'message-content';
+
+                // -- Logic to decide what to show based on log content --
+
+                // Standard Message Text (if meaningful and not just the node name)
+                if (log.message && !log.message.includes(log.node) && role === 'SYSTEM') {
+                    bodyEl.appendChild(createContentSection('Message', renderMarkdown(log.message)));
+                }
+
+                // Input Question (User)
+                if (log.input_question) {
+                    bodyEl.appendChild(createContentSection('User Input', renderMarkdown(log.input_question)));
+                }
+
+                // LLM Prompt
+                if (log.prompt) {
+                    // remove common 'Human:' prefix if present for cleaner view
+                    let promptText = log.prompt.replace(/^Human:\s*/, '');
+                    bodyEl.appendChild(createCollapsible('LLM Prompt', renderMarkdown(promptText)));
+                }
+
+                // Thought Process
+                if (log.outputs && log.outputs.thought_process) {
+                    bodyEl.appendChild(createContentSection('Thought Process', renderMarkdown(log.outputs.thought_process)));
+                }
+
+                // API Response
+                if (log.api_response) {
+                    bodyEl.appendChild(createCollapsible('API Response', renderJSON(log.api_response)));
+                }
+
+                // State Updates
+                if (log.state_updates) {
+                    bodyEl.appendChild(createCollapsible('State Updates', renderJSON(log.state_updates)));
+                }
+
+                // Inputs / Outputs (Generic)
+                if (log.inputs) {
+                    bodyEl.appendChild(createCollapsible('Inputs', renderJSON(log.inputs)));
+                }
+
+                // If outputs has complex data other than thought process
+                if (log.outputs) {
+                    // Deep copy to not mutate original log if we want to delete thought_process from view
+                    const displayOutputs = JSON.parse(JSON.stringify(log.outputs));
+                    delete displayOutputs.thought_process;
+                    if (Object.keys(displayOutputs).length > 0) {
+                        bodyEl.appendChild(createCollapsible('Outputs Data', renderJSON(displayOutputs)));
+                    }
+                }
+
+                // Final State
+                if (log.final_state) {
+                    bodyEl.appendChild(createContentSection('Final Result', renderJSON(log.final_state)));
+                }
+
+                messageEl.appendChild(bodyEl);
+                chatContainer.appendChild(messageEl);
+            });
+        }
+
+        function createContentSection(label, element) {
+            const div = document.createElement('div');
+            div.className = 'content-section';
+            const lbl = document.createElement('div');
+            lbl.className = 'content-label';
+            lbl.textContent = label;
+            div.appendChild(lbl);
+            div.appendChild(element);
+            return div;
+        }
+
+        function createCollapsible(label, element) {
+            const container = document.createElement('div');
+            container.className = 'content-section';
+
+            const wrapper = document.createElement('div');
+            wrapper.className = 'collapsible';
+
+            const header = document.createElement('div');
+            header.className = 'collapsible-header';
+            header.innerHTML = `<span class="arrow">▶</span> <span>${label}</span>`;
+
+            const content = document.createElement('div');
+            content.className = 'collapsible-content';
+            content.appendChild(element);
+
+            header.addEventListener('click', () => {
+                const isOpen = content.classList.toggle('open');
+                header.querySelector('.arrow').style.transform = isOpen ? 'rotate(90deg)' : 'rotate(0deg)';
+            });
+
+            wrapper.appendChild(header);
+            wrapper.appendChild(content);
+            container.appendChild(wrapper);
+
+            return container;
+        }
+
+        function renderMarkdown(text) {
+            const div = document.createElement('div');
+            div.className = 'markdown-body';
+            if (typeof text === 'string') {
+                div.innerHTML = marked.parse(text);
+            } else {
+                div.textContent = String(text);
+            }
+            return div;
+        }
+
+        function renderJSON(obj) {
+            const pre = document.createElement('pre');
+            pre.innerHTML = syntaxHighlight(obj);
+            return pre;
+        }
+
+        function syntaxHighlight(json) {
+            if (typeof json != 'string') {
+                json = JSON.stringify(json, undefined, 2);
+            }
+            json = json.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            return json.replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g, function (match) {
+                var cls = 'json-number';
+                if (/^"/.test(match)) {
+                    if (/:$/.test(match)) {
+                        cls = 'json-key';
+                    } else {
+                        cls = 'json-string';
+                    }
+                } else if (/true|false/.test(match)) {
+                    cls = 'json-boolean';
+                } else if (/null/.test(match)) {
+                    cls = 'json-null';
+                }
+                return '<span class="' + cls + '">' + match + '</span>';
+            });
+        }
+
+    </script>
+
+</body>
+
+</html>

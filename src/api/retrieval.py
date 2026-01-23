@@ -76,48 +76,48 @@ def resolve_context(
 @router.post("/datasources", response_model=PaginatedDatasourceResponse)
 def search_datasources(request: DiscoverySearchRequest, db: Session = Depends(get_db)):
     service = SearchService(db)
-    return service.search_datasources(request.query, request.page, request.limit)
+    return service.search_datasources(request.query, request.page, request.limit, request.min_ratio_to_best)
 
 
 @router.post("/golden_sql", response_model=PaginatedGoldenSQLResponse)
 def search_golden_sql(request: GoldenSQLSearchRequest, db: Session = Depends(get_db)):
     service = SearchService(db)
-    return service.search_golden_sql(request.query, request.datasource_slug, request.page, request.limit)
+    return service.search_golden_sql(request.query, request.datasource_slug, request.page, request.limit, request.min_ratio_to_best)
 
 @router.post("/tables", response_model=PaginatedTableResponse)
 def search_tables(request: TableSearchRequest, db: Session = Depends(get_db)):
     service = SearchService(db)
-    return service.search_tables(request.query, request.datasource_slug, request.page, request.limit)
+    return service.search_tables(request.query, request.datasource_slug, request.page, request.limit, request.min_ratio_to_best)
 
 @router.post("/columns", response_model=PaginatedColumnResponse)
 def search_columns(request: ColumnSearchRequest, db: Session = Depends(get_db)):
     service = SearchService(db)
-    return service.search_columns(request.query, request.datasource_slug, request.table_slug, request.page, request.limit)
+    return service.search_columns(request.query, request.datasource_slug, request.table_slug, request.page, request.limit, request.min_ratio_to_best)
 
 @router.post("/edges", response_model=PaginatedEdgeResponse)
 def search_edges(request: EdgeSearchRequest, db: Session = Depends(get_db)):
     service = SearchService(db)
-    return service.search_edges(request.query, request.datasource_slug, request.table_slug, request.page, request.limit)
+    return service.search_edges(request.query, request.datasource_slug, request.table_slug, request.page, request.limit, request.min_ratio_to_best)
 
 @router.post("/metrics", response_model=PaginatedMetricResponse)
 def search_metrics(request: MetricSearchRequest, db: Session = Depends(get_db)):
     service = SearchService(db)
-    return service.search_metrics(request.query, request.datasource_slug, request.page, request.limit)
+    return service.search_metrics(request.query, request.datasource_slug, request.page, request.limit, request.min_ratio_to_best)
 
 @router.post("/synonyms", response_model=PaginatedSynonymResponse)
 def search_synonyms(request: SynonymSearchRequest, db: Session = Depends(get_db)):
     service = SearchService(db)
-    return service.search_synonyms(request.query, request.datasource_slug, request.page, request.limit)
+    return service.search_synonyms(request.query, request.datasource_slug, request.page, request.limit, request.min_ratio_to_best)
 
 @router.post("/context_rules", response_model=PaginatedContextRuleResponse)
 def search_context_rules(request: ContextRuleSearchRequest, db: Session = Depends(get_db)):
     service = SearchService(db)
-    return service.search_context_rules(request.query, request.datasource_slug, request.table_slug, request.page, request.limit)
+    return service.search_context_rules(request.query, request.datasource_slug, request.table_slug, request.page, request.limit, request.min_ratio_to_best)
 
 @router.post("/low_cardinality_values", response_model=PaginatedLowCardinalityValueResponse)
 def search_low_cardinality_values(request: LowCardinalityValueSearchRequest, db: Session = Depends(get_db)):
     service = SearchService(db)
-    return service.search_low_cardinality_values(request.query, request.datasource_slug, request.table_slug, request.column_slug, request.page, request.limit)
+    return service.search_low_cardinality_values(request.query, request.datasource_slug, request.table_slug, request.column_slug, request.page, request.limit, request.min_ratio_to_best)
 
 @router.post("/paths", response_model=GraphPathResult)
 def search_graph_paths(
@@ -279,6 +279,95 @@ class MCPFormatter:
             
         return "\n".join(lines) + MCPFormatter._format_pagination_footer(response)
 
+    @staticmethod
+    def format_resolved_context(response: ContextResolutionResponse) -> str:
+        """
+        Converts the hierarchical context response into a clean, token-efficient 
+        Markdown format optimized for LLM ingestion.
+        """
+        blocks = []
+
+        for ds in response.graph:
+            ds_block = []
+            
+            # 1. Livello Datasource
+            ds_block.append(f"# Datasource: `{ds.name}`")
+            ds_block.append(f"- **Slug**: {ds.slug}")
+            if ds.description:
+                ds_block.append(f"- **Usage**: {ds.description} \n")
+            
+            # 2. Livello Tabelle
+            ds_block.append(f"\t## Founded Tables:")
+            for table in ds.tables:
+                ds_block.append(f"\t\t### Table: `{table.physical_name}` ")
+                ds_block.append(f"\t\t- **Slug**: `{table.slug}`")
+                ds_block.append(f"\t\t- **Usage**: {table.description or 'No description available.'}")
+                
+                # 3. Livello Colonne (Mostriamo solo se ci sono colonne rilevanti)
+                if table.columns:
+                    ds_block.append(f"\n\t\t\t#### Founded Columns:")
+                    for col in table.columns:
+                        # Costruiamo la riga della colonna in modo compatto
+                        ds_block.append(f"\t\t\t\t##### Column: `{col.name}` ")
+                        ds_block.append(f"\t\t\t\t- **Slug**: `{col.slug}`")
+
+                        if col.data_type:
+                            ds_block.append(f"\t\t\t\t- **Type**: `{col.data_type}`")
+                        
+                        if col.description:
+                            ds_block.append(f"\t\t\t\t- **Desc**: `{col.description}`")
+
+                        if col.context_note:
+                            ds_block.append(f"\t\t\t\t- **Notes**: `{col.context_note}`")
+
+                        # 4a. Nominal Values (Low Cardinality)
+                        if col.nominal_values:
+                            vals = [v.value_raw for v in col.nominal_values]
+                            # Limita a 5 valori per evitare bloat
+                            val_str = ", ".join(vals[:5])
+                            if len(vals) > 5:
+                                val_str += ", ..."
+                            ds_block.append(f"\t\t\t\t> Nominal Values: {val_str}")
+
+                        # 4b. Context Rules
+                        if col.context_rules:
+                            for rule in col.context_rules:
+                                ds_block.append(f"\t\t\t\t> Context Rule: {rule.rule_text}")
+                        ds_block.append("\n")
+                
+
+            # 5. Metrics
+            if ds.metrics:
+                ds_block.append("\n\t### Semantic Metrics")
+                for metric in ds.metrics:
+                    ds_block.append(f"\t\t- **{metric.name}**")
+                    if metric.description:
+                        ds_block.append(f"\t\t- Desc : {metric.description}")
+                    ds_block.append(f"\t\t- SQL: `{metric.calculation_sql}`")
+                ds_block.append("\n\t\t---")
+            
+            # 6. Edges / Relationships
+            if ds.edges:
+                ds_block.append("\n\t\t### Relationships")
+                for edge in ds.edges:
+                    ds_block.append(f"\t\t- `{edge.source}` -> `{edge.target}` ({edge.relationship_type})")
+                    if edge.description:
+                         ds_block.append(f"\t\t- _{edge.description}_")
+                ds_block.append("\n\t\t---")
+
+            # 7. Golden SQL
+            if ds.golden_sqls:
+                ds_block.append("\n\t\t### Golden SQL Examples")
+                for gs in ds.golden_sqls:
+                    ds_block.append(f"\t\t- **Prompt**: \"{gs.prompt}\"")
+                    ds_block.append(f"\t\t- `SQL`: {gs.sql}")
+                ds_block.append("\n\t\t---")
+
+            blocks.append("\n".join(ds_block))
+            
+        # Uniamo tutto in una singola stringa
+        return "\n".join(blocks)
+
 
 @router.post("/mcp/datasources", response_model=MCPResponse)
 def mcp_search_datasources(request: DiscoverySearchRequest, db: Session = Depends(get_db)):
@@ -342,3 +431,13 @@ def mcp_search_low_cardinality_values(request: LowCardinalityValueSearchRequest,
     service = SearchService(db)
     result = service.search_low_cardinality_values(request.query, request.datasource_slug, request.table_slug, request.column_slug, request.page, request.limit)
     return MCPResponse(res=MCPFormatter.format_low_cardinality_values(result))
+
+
+@router.post("/mcp/resolve-context", response_model=MCPResponse)
+def mcp_resolve_context(
+    items: List[ContextSearchItem], 
+    db: Session = Depends(get_db)
+):
+    resolver = ContextResolver(db)
+    result = resolver.resolve(items)
+    return MCPResponse(res=MCPFormatter.format_resolved_context(result))

@@ -74,35 +74,35 @@ class ContextResolver:
                 # We'll use the public methods which return Pydantic models, 
                 # but we actually need the IDs mostly. 
                 # Let's trust the service methods.
-                res = self.search_service.search_tables(query, None, page=1, limit=LIMIT)
+                res = self.search_service.search_tables(query, None, page=1, limit=LIMIT, min_ratio_to_best=item.min_ratio_to_best)
                 hits = [{'type': 'TABLE', 'entity': x} for x in res.items]
                 
             elif entity_type == ContextSearchEntity.COLUMNS:
-                res = self.search_service.search_columns(query, None, None, page=1, limit=LIMIT)
+                res = self.search_service.search_columns(query, None, None, page=1, limit=LIMIT, min_ratio_to_best=item.min_ratio_to_best)
                 hits = [{'type': 'COLUMN', 'entity': x} for x in res.items]
 
             elif entity_type == ContextSearchEntity.METRICS:
-                res = self.search_service.search_metrics(query, None, page=1, limit=LIMIT)
+                res = self.search_service.search_metrics(query, None, page=1, limit=LIMIT, min_ratio_to_best=item.min_ratio_to_best)
                 hits = [{'type': 'METRIC', 'entity': x} for x in res.items]
 
             elif entity_type == ContextSearchEntity.GOLDEN_SQL:
-                res = self.search_service.search_golden_sql(query, None, page=1, limit=LIMIT)
+                res = self.search_service.search_golden_sql(query, None, page=1, limit=LIMIT, min_ratio_to_best=item.min_ratio_to_best)
                 hits = [{'type': 'GOLDEN_SQL', 'entity': x} for x in res.items]
             
             elif entity_type == ContextSearchEntity.EDGES:
-                res = self.search_service.search_edges(query, None, None, page=1, limit=LIMIT)
+                res = self.search_service.search_edges(query, None, None, page=1, limit=LIMIT, min_ratio_to_best=item.min_ratio_to_best)
                 hits = [{'type': 'EDGE', 'entity': x} for x in res.items]
             
             elif entity_type == ContextSearchEntity.CONTEXT_RULES:
-                res = self.search_service.search_context_rules(query, None, None, page=1, limit=LIMIT)
+                res = self.search_service.search_context_rules(query, None, None, page=1, limit=LIMIT, min_ratio_to_best=item.min_ratio_to_best)
                 hits = [{'type': 'CONTEXT_RULE', 'entity': x} for x in res.items]
 
             elif entity_type == ContextSearchEntity.LOW_CARDINALITY_VALUES:
-                res = self.search_service.search_low_cardinality_values(query, None, None, None, page=1, limit=LIMIT)
+                res = self.search_service.search_low_cardinality_values(query, None, None, None, page=1, limit=LIMIT, min_ratio_to_best=item.min_ratio_to_best)
                 hits = [{'type': 'VALUE', 'entity': x} for x in res.items]
 
             elif entity_type == ContextSearchEntity.DATASOURCES:
-                res = self.search_service.search_datasources(query, page=1, limit=LIMIT)
+                res = self.search_service.search_datasources(query, page=1, limit=LIMIT, min_ratio_to_best=item.min_ratio_to_best)
                 hits = [{'type': 'DATASOURCE', 'entity': x} for x in res.items]
 
             # Accumulate results
@@ -132,6 +132,7 @@ class ContextResolver:
         datasource_ids = set()
         metric_ids = set()
         golden_sql_ids = set()
+        edge_ids = set()
         
         scores: Dict[UUID, float] = {}
 
@@ -203,6 +204,13 @@ class ContextResolver:
                     column_ids.add(val.column_id)
                 add_score(val)
 
+        # 8. Process Edges
+        if "edges" in raw_hits:
+            for hit in raw_hits["edges"]:
+                edge = hit['entity']
+                edge_ids.add(edge.id)
+                add_score(edge)
+
         return {
             "table_ids": table_ids,
             "column_ids": column_ids,
@@ -211,6 +219,7 @@ class ContextResolver:
             "datasource_ids": datasource_ids,
             "metric_ids": metric_ids,
             "golden_sql_ids": golden_sql_ids,
+            "edge_ids": edge_ids,
             "scores": scores
         }
 
@@ -225,6 +234,7 @@ class ContextResolver:
         known_ds_ids = resolved_ids.get("datasource_ids", set())
         metric_ids = resolved_ids.get("metric_ids", set())
         golden_sql_ids = resolved_ids.get("golden_sql_ids", set())
+        known_edge_ids = resolved_ids.get("edge_ids", set())
         scores = resolved_ids.get("scores", {})
 
         # ---------------------------------------------------------
@@ -243,6 +253,16 @@ class ContextResolver:
                 known_column_ids.add(v.column_id)
 
         # ---------------------------------------------------------
+        # 1.1 Fetch Edges (if explicitly requested) -> Bubble up to Columns
+        # ---------------------------------------------------------
+        fetched_edges = []
+        if known_edge_ids:
+            fetched_edges = self.db.query(SchemaEdge).filter(SchemaEdge.id.in_(known_edge_ids)).all()
+            for e in fetched_edges:
+                known_column_ids.add(e.source_column_id)
+                known_column_ids.add(e.target_column_id)
+
+        # ---------------------------------------------------------
         # 2. Fetch Columns -> Bubble up to Tables
         # ---------------------------------------------------------
         fetched_columns = []
@@ -259,6 +279,10 @@ class ContextResolver:
             fetched_tables = self.db.query(TableNode).filter(TableNode.id.in_(known_table_ids)).all()
             for t in fetched_tables:
                 known_ds_ids.add(t.datasource_id)
+
+
+
+
 
         # ---------------------------------------------------------
         # 4. Fetch Metrics/GSQL -> Bubble up to Datasources
@@ -286,14 +310,13 @@ class ContextResolver:
         # ---------------------------------------------------------
         # 6. Fetch Edges (Sub-graph strategy)
         # ---------------------------------------------------------
+        # ---------------------------------------------------------
+        # 6. Fetch Edges (Sub-graph strategy)
+        # ---------------------------------------------------------
         ds_edges = defaultdict(list)
-        if known_table_ids:
-            edges = self.db.query(SchemaEdge).join(
-                 SchemaEdge.source_column
-             ).join(
-                 TableNode, ColumnNode.table_id == TableNode.id
-             ).filter(
-                 TableNode.id.in_(known_table_ids)
+        if known_edge_ids:
+            edges = self.db.query(SchemaEdge).filter(
+                 SchemaEdge.id.in_(known_edge_ids)
              ).options(
                  selectinload(SchemaEdge.source_column).selectinload(ColumnNode.table),
                  selectinload(SchemaEdge.target_column).selectinload(ColumnNode.table)
@@ -301,8 +324,8 @@ class ContextResolver:
 
             for e in edges:
                 try:
-                    # Prune if target table not in context
-                    if e.target_column.table_id in known_table_ids:
+                    # Ensure both tables are in context (they should be due to step 1.1)
+                    if e.target_column.table_id in known_table_ids and e.source_column.table_id in known_table_ids:
                         src_slug = f"{e.source_column.table.slug}.{e.source_column.slug}"
                         tgt_slug = f"{e.target_column.table.slug}.{e.target_column.slug}"
                         ds_id = e.source_column.table.datasource_id

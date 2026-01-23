@@ -18,6 +18,7 @@ export interface DiscoverySearchRequest {
     page?: number;
     limit?: number;
     mcp?: boolean;
+    min_ratio_to_best?: number;
 }
 
 export interface DatasourceSearchRequest extends DiscoverySearchRequest { }
@@ -71,6 +72,7 @@ export type ContextSearchEntity = 'datasources' | 'tables' | 'columns' | 'edges'
 export interface ContextSearchItem {
     entity: ContextSearchEntity;
     search_text: string;
+    min_ratio_to_best?: number;
 }
 
 export interface ResolvedColumn {
@@ -82,6 +84,7 @@ export interface ResolvedColumn {
     description?: string;
     context_rules: any[];
     nominal_values: any[];
+    score?: number;
     [key: string]: any;
 }
 
@@ -92,6 +95,7 @@ export interface ResolvedTable {
     semantic_name: string;
     description?: string;
     columns: ResolvedColumn[];
+    score?: number;
     [key: string]: any;
 }
 
@@ -103,6 +107,7 @@ export interface ResolvedDatasource {
     metrics: any[];
     golden_sqls: any[];
     edges: any[];
+    score?: number;
     [key: string]: any;
 }
 
@@ -163,7 +168,8 @@ export class DiscoveryService {
         return this.http.post<GraphPathResult>(`${this.apiUrl}/paths`, req);
     }
 
-    resolveContext(items: ContextSearchItem[]): Observable<ContextResolutionResponse> {
-        return this.http.post<ContextResolutionResponse>(`${this.apiUrl}/resolve-context`, items);
+    resolveContext(items: ContextSearchItem[], mcp?: boolean): Observable<ContextResolutionResponse | any> {
+        const url = mcp ? `${this.apiUrl}/mcp/resolve-context` : `${this.apiUrl}/resolve-context`;
+        return this.http.post<ContextResolutionResponse | any>(url, items);
     }
 }

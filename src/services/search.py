@@ -93,6 +93,7 @@ class SearchService:
         filters: Dict[str, Any], 
         limit: int = 10,
         offset: int = 0,
+        min_ratio_to_best: float = None,
         **kwargs
     ) -> tuple[List[Dict[str, Any]], int]:
         """
@@ -127,6 +128,7 @@ class SearchService:
             filters=filters or {},
             limit=limit,
             offset=offset,
+            min_ratio_to_best=min_ratio_to_best,
             **kwargs
         )
         
@@ -181,11 +183,12 @@ class SearchService:
         self, 
         query: str, 
         page: int = 1, 
-        limit: int = 10
+        limit: int = 10,
+        min_ratio_to_best: float = None
     ) -> PaginatedResponse[DatasourceSearchResult]:
         """Search datasources and return paginated results."""
         offset = (page - 1) * limit
-        hits, total = self._generic_search(Datasource, query, {}, limit, offset)
+        hits, total = self._generic_search(Datasource, query, {}, limit, offset, min_ratio_to_best=min_ratio_to_best)
         
         items = []
         for hit in hits:
@@ -203,7 +206,8 @@ class SearchService:
         query: str, 
         datasource_slug: Optional[str], 
         page: int = 1,
-        limit: int = 10
+        limit: int = 10,
+        min_ratio_to_best: float = None
     ) -> PaginatedResponse[GoldenSQLResult]:
         """
         Search Golden SQL examples and return paginated results.
@@ -223,7 +227,8 @@ class SearchService:
             filters['datasource_id'] = ds_id
         
         offset = (page - 1) * limit
-        hits, total = self._generic_search(GoldenSQL, query, filters, limit, offset)
+        offset = (page - 1) * limit
+        hits, total = self._generic_search(GoldenSQL, query, filters, limit, offset, min_ratio_to_best=min_ratio_to_best)
         
         items = []
         for hit in hits:
@@ -252,7 +257,8 @@ class SearchService:
         query: str, 
         datasource_slug: Optional[str], 
         page: int = 1,
-        limit: int = 10
+        limit: int = 10,
+        min_ratio_to_best: float = None
     ) -> PaginatedResponse[TableSearchResult]:
         """
         Search tables with optional filter by datasource.
@@ -276,7 +282,8 @@ class SearchService:
             filters['datasource_id'] = ds_id
 
         offset = (page - 1) * limit
-        hits, total = self._generic_search(TableNode, query, filters, limit, offset)
+        offset = (page - 1) * limit
+        hits, total = self._generic_search(TableNode, query, filters, limit, offset, min_ratio_to_best=min_ratio_to_best)
         
         items = []
         for hit in hits:
@@ -295,7 +302,8 @@ class SearchService:
         datasource_slug: Optional[str], 
         table_slug: Optional[str], 
         page: int = 1,
-        limit: int = 10
+        limit: int = 10,
+        min_ratio_to_best: float = None
     ) -> PaginatedResponse[ColumnSearchResult]:
         """
         Search columns with optional filters by datasource and/or table.
@@ -351,7 +359,7 @@ class SearchService:
         
         # Perform search with filters and optional base_stmt
         offset = (page - 1) * limit
-        hits, total = self._generic_search(ColumnNode, query, filters, limit, offset, base_stmt=base_stmt)
+        hits, total = self._generic_search(ColumnNode, query, filters, limit, offset, base_stmt=base_stmt, min_ratio_to_best=min_ratio_to_best)
         
         # Pre-load table relationships to avoid N+1 queries
         # Collect all column IDs and eager load their table relationships
@@ -401,7 +409,8 @@ class SearchService:
         datasource_slug: Optional[str], 
         table_slug: Optional[str] = None, 
         page: int = 1,
-        limit: int = 10
+        limit: int = 10,
+        min_ratio_to_best: float = None
     ) -> PaginatedResponse[EdgeSearchResult]:
         """
         Search edges (relationships) with optional filters using hybrid search.
@@ -437,10 +446,9 @@ class SearchService:
                 TargetTable.slug == table_slug
             ))
 
-        # Perform hybrid search
         # Note: filters={} because we applied filters directly to base_stmt which handles the complex logic
         offset = (page - 1) * limit
-        hits, total = self._generic_search(SchemaEdge, query, {}, limit, offset, base_stmt=base_stmt)
+        hits, total = self._generic_search(SchemaEdge, query, {}, limit, offset, base_stmt=base_stmt, min_ratio_to_best=min_ratio_to_best)
         
         items = []
         for hit in hits:
@@ -481,7 +489,8 @@ class SearchService:
         query: str, 
         datasource_slug: Optional[str], 
         page: int = 1, 
-        limit: int = 10
+        limit: int = 10,
+        min_ratio_to_best: float = None
     ) -> PaginatedResponse[MetricSearchResult]:
         """
         Search metrics with optional filter by datasource.
@@ -510,7 +519,7 @@ class SearchService:
             )
         
         offset = (page - 1) * limit
-        hits, total = self._generic_search(SemanticMetric, query, filters, limit, offset, base_stmt=base_stmt)
+        hits, total = self._generic_search(SemanticMetric, query, filters, limit, offset, base_stmt=base_stmt, min_ratio_to_best=min_ratio_to_best)
         
         items = []
 
@@ -588,11 +597,12 @@ class SearchService:
         query: str, 
         datasource_slug: Optional[str], 
         page: int = 1,
-        limit: int = 10
+        limit: int = 10,
+        min_ratio_to_best: float = None
     ) -> PaginatedResponse[SynonymSearchResult]:
         """Search synonyms and return paginated results with resolved target slugs."""
         offset = (page - 1) * limit
-        hits, total = self._generic_search(SemanticSynonym, query, {}, limit, offset)
+        hits, total = self._generic_search(SemanticSynonym, query, {}, limit, offset, min_ratio_to_best=min_ratio_to_best)
         
         if not hits:
             return self._build_paginated_response([], total, page, limit)
@@ -679,7 +689,8 @@ class SearchService:
         datasource_slug: Optional[str], 
         table_slug: Optional[str], 
         page: int = 1,
-        limit: int = 10
+        limit: int = 10,
+        min_ratio_to_best: float = None
     ) -> PaginatedResponse[ContextRuleSearchResult]:
         filters = {}
         base_stmt = None
@@ -702,7 +713,7 @@ class SearchService:
              base_stmt = select(ColumnContextRule).join(ColumnNode).join(TableNode).where(TableNode.datasource_id == ds_id)
 
         offset = (page - 1) * limit
-        hits, total = self._generic_search(ColumnContextRule, query, filters, limit, offset, base_stmt=base_stmt)
+        hits, total = self._generic_search(ColumnContextRule, query, filters, limit, offset, base_stmt=base_stmt, min_ratio_to_best=min_ratio_to_best)
         
         # Helper to batch resolve column slugs and table slugs
         col_ids = {hit['entity'].column_id for hit in hits if hit['entity'].column_id}
@@ -749,7 +760,8 @@ class SearchService:
         table_slug: Optional[str], 
         column_slug: Optional[str], 
         page: int = 1, 
-        limit: int = 10
+        limit: int = 10,
+        min_ratio_to_best: float = None
     ) -> PaginatedResponse[LowCardinalityValueSearchResult]:
         filters = {}
         base_stmt = None
@@ -784,7 +796,7 @@ class SearchService:
              base_stmt = select(LowCardinalityValue).join(ColumnNode).join(TableNode).where(TableNode.datasource_id == ds_id)
 
         offset = (page - 1) * limit
-        hits, total = self._generic_search(LowCardinalityValue, query, filters, limit, offset, base_stmt=base_stmt)
+        hits, total = self._generic_search(LowCardinalityValue, query, filters, limit, offset, base_stmt=base_stmt, min_ratio_to_best=min_ratio_to_best)
         
         # Pre-load column and table relationships to avoid N+1 queries
         items = []

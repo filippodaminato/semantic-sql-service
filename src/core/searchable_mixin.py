@@ -246,6 +246,7 @@ class SearchableMixin:
         limit: int = 10,
         offset: int = 0,
         k: int = 60,
+        min_ratio_to_best: float = None,
         base_stmt=None
     ) -> List[Dict[str, Any]]:
         """
@@ -416,6 +417,12 @@ class SearchableMixin:
                 key=lambda x: x['score'],
                 reverse=True
             )
+            
+            # Apply min_ratio_to_best filter
+            if min_ratio_to_best is not None and final_results:
+                best_score = final_results[0]['score']
+                cutoff = best_score * min_ratio_to_best
+                final_results = [r for r in final_results if r['score'] >= cutoff]
             
             # Apply offset and limit
             return final_results[offset:offset + limit]
