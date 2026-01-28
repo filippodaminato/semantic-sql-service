@@ -118,12 +118,17 @@ async def search_metadata(query: str, datasource_slug: str, **kwargs) -> List[st
     combined = []
     
     for r in t_res:
-        combined.append(f"[TABLE] {r['semantic_name']} (Slug: {r['slug']}) - {r.get('description', '')}")
+        # Use physical_name if available, else slug
+        name = r.get('physical_name', r['slug'])
+        combined.append(f"[TABLE] {name} (Slug: {r['slug']}) - {r.get('description', '')}")
         
     for r in c_res:
-        combined.append(f"[COLUMN] {r['semantic_name']} (Table: {r.get('table_slug')}) - {r.get('description', '')}")
+        # Use physical name (name field) if available
+        col_name = r.get('name', r['slug'])
+        combined.append(f"[COLUMN] {col_name} (Table: {r.get('table_slug')}) - {r.get('description', '')}")
         
     for r in m_res:
-        combined.append(f"[METRIC] {r['name']} - {r.get('description', '')}")
+        # Metrics use 'name' as semantic name usually, but that's fine for metrics
+        combined.append(f"[METRIC] {r['name']} (Slug: {r['slug']}) - {r.get('description', '')}")
         
     return combined[:15]  # Return top 15 mixed results

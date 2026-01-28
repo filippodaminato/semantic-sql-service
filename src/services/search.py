@@ -853,21 +853,31 @@ class SearchService:
                 raise HTTPException(status_code=404, detail=f"Datasource '{datasource_slug}' not found")
 
         # Resolve Source Table
-        source_query = self.db.query(TableNode).filter(TableNode.slug == source_table_slug)
+        source_query = self.db.query(TableNode).filter(
+            or_(
+                TableNode.slug == source_table_slug,
+                TableNode.physical_name == source_table_slug
+            )
+        )
         if ds:
             source_query = source_query.filter(TableNode.datasource_id == ds.id)
         source_table = source_query.first()
         
         # Resolve Target Table
-        target_query = self.db.query(TableNode).filter(TableNode.slug == target_table_slug)
+        target_query = self.db.query(TableNode).filter(
+            or_(
+                TableNode.slug == target_table_slug,
+                TableNode.physical_name == target_table_slug
+            )
+        )
         if ds:
             target_query = target_query.filter(TableNode.datasource_id == ds.id)
         target_table = target_query.first()
         
         if not source_table:
-            raise HTTPException(status_code=404, detail=f"Source table '{source_table_slug}' not found")
+            raise HTTPException(status_code=404, detail=f"Source table '{source_table_slug}' not found (tried slug and physical name)")
         if not target_table:
-            raise HTTPException(status_code=404, detail=f"Target table '{target_table_slug}' not found")
+            raise HTTPException(status_code=404, detail=f"Target table '{target_table_slug}' not found (tried slug and physical name)")
             
         source_id = source_table.id
         target_id = target_table.id

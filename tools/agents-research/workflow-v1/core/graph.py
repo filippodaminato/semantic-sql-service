@@ -3,6 +3,35 @@ from functools import partial
 from core.state import AgentState
 from retrieval.graph import build_retrieval_subgraph
 from refinement.graph import build_refinement_subgraph
+from generation.graph import build_generation_subgraph
+
+async def call_generation_bridge(state: AgentState, subgraph):
+    """
+    Bridge function that maps Global State to Generation Subgraph State
+    and maps the output back to Global State.
+    """
+    # 1. Map Global -> Local
+    input_state = {
+        "question": state["question"],
+        "refined_datasource": state["refined_datasource"],
+        "query_blueprint": state["logical_query_plan"],  # Mapping Global 'logical_query_plan' to 'query_blueprint'
+        "candidate_sql": "",
+        "attempt_count": 0,
+        "local_logs": [],
+        "validation_error": None
+    }
+    
+    # 2. Invoke Subgraph
+    output = await subgraph.ainvoke(input_state)
+    
+    # 3. Map Local -> Global
+    # Combine logs if needed
+    new_logs = state.get("global_logs", []) + output["local_logs"]
+    
+    return {
+        "final_sql": output.get("final_sql"),
+        "global_logs": new_logs
+    }
 
 async def call_refinement_bridge(state: AgentState, subgraph):
     """
@@ -39,6 +68,7 @@ def build_main_graph(llm):
     # --- SUBGRAPHS ---
     retrieval_graph = build_retrieval_subgraph(llm)
     refinement_graph = build_refinement_subgraph(llm)
+    generation_graph = build_generation_subgraph(llm)
     
     # --- NODES ---
     # Retrieval matches AgentState keys partially, so we can use it directly?
@@ -53,9 +83,14 @@ def build_main_graph(llm):
     # Refinement needs a bridge because input keys differ (raw_datasource -> working_datasource)
     workflow.add_node("refinement", partial(call_refinement_bridge, subgraph=refinement_graph))
     
+    # Generation node
+    workflow.add_node("generation", partial(call_generation_bridge, subgraph=generation_graph))
+    
     # --- EDGES ---
     workflow.set_entry_point("retrieval")
+    workflow.set_entry_point("retrieval")
     workflow.add_edge("retrieval", "refinement")
-    workflow.add_edge("refinement", END)
+    workflow.add_edge("refinement", "generation")
+    workflow.add_edge("generation", END)
     
     return workflow.compile()

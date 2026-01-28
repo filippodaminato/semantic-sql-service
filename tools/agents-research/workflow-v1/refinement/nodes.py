@@ -423,6 +423,10 @@ async def evaluator_node(state, llm):
     if failed_target_id:
         current_failed.append(failed_target_id.lower())
         
+    # --- SIDE EFFECT: Inject Columns if Join Path ---
+    if evaluation.is_relevant and target.entity_type == "join_path":
+        _inject_columns_from_paths(ds, raw_results, adapter)
+        
     return {
         "working_datasource": ds,
         "pending_search_results": [], # Clear buffer
@@ -430,3 +434,64 @@ async def evaluator_node(state, llm):
         "local_logs": state.get("local_logs", []) + [log_msg],
         "failed_targets": current_failed
     }
+
+def _inject_columns_from_paths(ds, paths, adapter):
+    """
+    Parses structured join paths and adds missing columns to the datasource.
+    Crucial for Validator to accept FKs/PKs that were filtered out during Retrieval.
+    """
+    for path in paths:
+        if not isinstance(path, list): continue # Skip error strings
+        
+        for hop in path:
+            # hop = {source: {...}, target: {...}}
+            if not isinstance(hop, dict): continue
+            
+            src = hop.get("source")
+            tgt = hop.get("target")
+            
+            if src: _ensure_column_exists(ds, src, adapter)
+            if tgt: _ensure_column_exists(ds, tgt, adapter)
+
+def _ensure_column_exists(ds, col_info, adapter):
+    """
+    col_info: {table_slug, column_slug, column_name, ...}
+    """
+    t_slug = col_info.get("table_slug")
+    c_name = col_info.get("column_name")
+    c_slug = col_info.get("column_slug")
+    
+    if not t_slug or not c_name: return
+
+    # Find Table
+    table_obj = next((t for t in ds.get("tables", []) if t["slug"] == t_slug), None)
+    if not table_obj:
+        # Table might be missing? That would be weird if retrieval found the path.
+        # But if pruned, maybe we shouldn't add it back? 
+        # Actually, if we are joining on it, we probably need it.
+        # For now, only add column if table exists.
+        return
+
+    # Check if column exists
+    if "columns" not in table_obj: table_obj["columns"] = []
+    
+    exists = any(c.get("name") == c_name or c.get("slug") == c_slug for c in table_obj["columns"])
+    
+    if not exists:
+        # Construct a minimal column object
+        # We don't have full metadata (type, desc) from search_graph_paths usually, 
+        # unless search_graph_paths returns it.
+        # Looking at logs: source: {table_slug..., column_name...}
+        # It lacks type and description. 
+        # But for the Validator (LLM), existence is often enough, 
+        # or we defaults.
+        new_col = {
+            "name": c_name,
+            "slug": c_slug or f"{t_slug}_{c_name}",
+            "physical_name": c_name,
+            "description": "Injected from Join Path",
+            "data_type": "UNKNOWN", # Ideally we fetch this, but for now this unblocks 404
+            "is_injected": True
+        }
+        table_obj["columns"].append(new_col)
+        adapter.info(f"💉 Injected missing column `{c_name}` into `{t_slug}` from Join Path.")
