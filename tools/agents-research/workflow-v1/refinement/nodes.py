@@ -299,7 +299,7 @@ async def fetch_worker_node(state):
 
 async def generate_blueprint_node(state, llm):
     """
-    Genera il piano discorsivo finale.
+    Generates the final discursive plan.
     """
     start_time = time.time()
     adapter = NodeLoggerAdapter(logger, {"node": "generate_blueprint_node"})
@@ -308,7 +308,7 @@ async def generate_blueprint_node(state, llm):
     ds = state["working_datasource"]
     question = state["question"]
     
-    # Prepariamo il contesto
+    # We prepare the context
     context_md = ContextFormatter.to_markdown(ds)
     notes = "\n".join(ds.get("enrichment_notes", []))
     
@@ -343,7 +343,7 @@ async def generate_blueprint_node(state, llm):
         prompt=prompt_str
     )
     
-    # Salviamo nel campo 'final_logical_plan'
+    # We save in the 'final_logical_plan' field
     return {
         "final_logical_plan": blueprint,
         "local_logs": state.get("local_logs", []) + ["Blueprint generated."]

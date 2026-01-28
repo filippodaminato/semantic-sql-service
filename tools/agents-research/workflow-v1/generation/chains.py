@@ -39,7 +39,7 @@ def build_generator_chain(llm):
     return chain, prompt
 
 # --- VALIDATOR PROMPT (The Linter) ---
-# Se non hai un DB connesso per fare 'EXPLAIN', usiamo un LLM come Linter statico.
+# If you don't have a DB connected to do 'EXPLAIN', we use an LLM as a static Linter.
 VALIDATOR_SYSTEM_PROMPT = """
 You are a SQL Syntax Checker.
 Analyze the provided SQL query against the Schema.

@@ -6,7 +6,7 @@ from typing import Any
 from datetime import datetime
 from pythonjsonlogger import jsonlogger
 
-# Creiamo una cartella logs se non esiste
+# Create a logs directory if it does not exist
 LOG_DIR = "logs"
 os.makedirs(LOG_DIR, exist_ok=True)
 
@@ -22,14 +22,14 @@ class CustomJsonFormatter(jsonlogger.JsonFormatter):
 
 class NodeLoggerAdapter(logging.LoggerAdapter):
     """
-    Adapter custom che unisce (merge) i field extra passati al log
-    con quelli definiti nell'adapter (es. node name).
-    Il LoggerAdapter standard sovrascrive 'extra', perdendo i dati.
+    Custom adapter that merges extra fields passed to the log
+    with those defined in the adapter (e.g. node name).
+    The standard LoggerAdapter overwrites 'extra', losing data.
     """
     def process(self, msg, kwargs):
-        # Se c'è già un extra nel kwargs, lo uniamo con self.extra (il contesto del nodo)
+        # If there is already an extra in kwargs, we merge it with self.extra (the node context)
         extra_payload = kwargs.get("extra", {})
-        # Facciamo update su una copia per non sporcare il dizionario originale se riusato
+        # We update on a copy to avoid polluting the original dictionary if reused
         merged_extra = self.extra.copy()
         merged_extra.update(extra_payload)
         
@@ -37,27 +37,27 @@ class NodeLoggerAdapter(logging.LoggerAdapter):
         return msg, kwargs
 
 def setup_logger(run_id: str):
-    """Configura un logger che scrive tutto su file JSON e l'essenziale su Console."""
+    """Configures a logger that writes everything to a JSON file and the essentials to Console."""
     
     logger = logging.getLogger("agent_logger")
-    logger.setLevel(logging.DEBUG) # Catturiamo tutto
+    logger.setLevel(logging.DEBUG) # Catch everything
     
-    # Evita duplicati se richiamato più volte
+    # Avoid duplicates if called multiple times
     if logger.handlers:
         return logger
 
     # --- HANDLER 1: FILE ROTATING (JSON) ---
-    # Ogni run avrà il suo file univoco per debug facile
+    # Each run will have its unique file for easy debugging
     log_filename = f"{LOG_DIR}/run_{run_id}.jsonl"
     file_handler = logging.FileHandler(log_filename)
     file_formatter = CustomJsonFormatter('%(timestamp)s %(level)s %(name)s %(message)s')
     file_handler.setFormatter(file_formatter)
     logger.addHandler(file_handler)
 
-    # --- HANDLER 2: CONSOLE (Colorato e Sintetico) ---
+    # --- HANDLER 2: CONSOLE (Colored and Concise) ---
     console_handler = logging.StreamHandler()
-    console_handler.setLevel(logging.INFO) # In console solo l'essenziale
-    # Formatter semplice per umani
+    console_handler.setLevel(logging.INFO) # In console only the essentials
+    # Simple formatter for humans
     console_format = logging.Formatter('%(asctime)s - \033[94m%(name)s\033[0m - %(levelname)s - %(message)s')
     console_handler.setFormatter(console_format)
     logger.addHandler(console_handler)
@@ -65,12 +65,12 @@ def setup_logger(run_id: str):
     return logger
 
 def log_llm_interaction(logger, step_name: str, inputs: dict, outputs: Any, latency: float = 0.0, prompt: str = None):
-    """Helper per loggare input/output LLM in modo strutturato senza sporcare la console."""
+    """Helper to log LLM input/output in a structured way without cluttering the console."""
     log_payload = {
         "event_type": "llm_call",
         "step": step_name,
-        "inputs": inputs, # Dump completo inputs
-        "outputs": getattr(outputs, "dict", lambda: str(outputs))(), # Gestisce Pydantic o str
+        "inputs": inputs, # Full inputs dump
+        "outputs": getattr(outputs, "dict", lambda: str(outputs))(), # Handles Pydantic or str
         "latency_seconds": latency
     }
     
@@ -83,7 +83,7 @@ def log_llm_interaction(logger, step_name: str, inputs: dict, outputs: Any, late
     )
 
 def log_state_transition(logger, step_name: str, state_diff: dict):
-    """Logga come cambia lo stato."""
+    """Logs how the state changes."""
     logger.info(
         f"State Updated: {step_name}",
         extra={

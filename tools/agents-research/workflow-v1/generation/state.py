@@ -4,11 +4,11 @@ class GenerationState(TypedDict):
     # --- INPUTS (From Global State) ---
     question: str
     refined_datasource: Dict[str, Any]
-    query_blueprint: Dict[str, Any] # Il nostro piano discorsivo
+    query_blueprint: Dict[str, Any] # Our discursive plan
     
     # --- INTERNAL MEMORY ---
     candidate_sql: str
-    validation_error: Optional[str] # Se presente, triggera il fixer
+    validation_error: Optional[str] # If present, triggers the fixer
     attempt_count: int
     
     # --- OUTPUTS ---

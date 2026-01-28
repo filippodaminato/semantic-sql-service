@@ -2,8 +2,8 @@ from typing import List, Dict, Any
 import httpx
 
 
-# NOTA IMPORTANTE NEL PAYLOAD METTERE SEMPRE datasource_slug: {current_datasource_slug}
-# Inoltre alcune api hanno la possibilità di aggiungere filtri tipo table_slug: {table_slug} va messo in payload e detto all'LLM
+# IMPORTANT NOTE IN THE PAYLOAD ALWAYS PUT datasource_slug: {current_datasource_slug}
+# Also some APIs have the possibility to add filters like table_slug: {table_slug} must be put in payload and told to the LLM
 BASE_URL = "http://localhost:8000/api/v1/discovery"
 
 async def _post(endpoint: str, payload: Dict[str, Any]) -> Any:

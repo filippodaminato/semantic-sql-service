@@ -5,7 +5,7 @@ from retrieval.tools import perform_discovery
 from utils.formatter import AgentContextFormatter
 from core.logger import log_llm_interaction, log_state_transition, NodeLoggerAdapter
 
-# Recuperiamo il logger configurato
+# Retrieve the configured logger
 logger = logging.getLogger("agent_logger")
 
 async def plan_search_node(state, llm):
@@ -14,10 +14,10 @@ async def plan_search_node(state, llm):
     adapter = NodeLoggerAdapter(logger, {"node": "plan_search_node"})
     adapter.info("▶️ NODE START")
     
-    # 1. Logica
+    # 1. Logic
     chain, prompt_tpl = build_search_planner_chain(llm)
     
-    # Log Pre-Execution (Cosa stiamo per chiedere?)
+    # Log Pre-Execution (What are we about to ask?)
     adapter.debug("Building Prompt for Search Planner", extra={"input_question": state["question"]})
 
     try:
@@ -32,8 +32,8 @@ async def plan_search_node(state, llm):
 
     duration = time.time() - start_time
 
-    # 2. LOG ESAUSTIVO (Input/Output LLM)
-    # Questo finisce nel file JSONL, non intasa la console
+    # 2. EXHAUSTIVE LOG (LLM Input/Output)
+    # This goes into the JSONL file, doesn't clog the console
     log_llm_interaction(
         adapter, 
         step_name="plan_search_node", 

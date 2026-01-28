@@ -30,7 +30,7 @@ class AgentContextFormatter:
         for ds in graph:
             ds_block = []
             
-            # 1. Livello Datasource
+            # 1. Datasource Level
             name = cls._get_val(ds, "name", "Unknown")
             slug = cls._get_val(ds, "slug", "")
             description = cls._get_val(ds, "description", "")
@@ -48,7 +48,7 @@ class AgentContextFormatter:
                     ds_block.append(f"- {note}")
                 ds_block.append("\n")
             
-            # 2. Livello Tabelle
+            # 2. Table Level
             tables = cls._get_val(ds, "tables", [])
             if tables:
                 ds_block.append(f"## Founded Tables:")
@@ -61,7 +61,7 @@ class AgentContextFormatter:
                     ds_block.append(f"- **Slug**: `{t_slug}`")
                     ds_block.append(f"- **Usage**: {t_desc or 'No description available.'}")
                     
-                    # 3. Livello Colonne (Mostriamo solo se ci sono colonne rilevanti)
+                    # 3. Column Level (Show only if there are relevant columns)
                     columns = cls._get_val(table, "columns", [])
                     if columns:
                         ds_block.append(f"\n#### Founded Columns:")
@@ -74,7 +74,7 @@ class AgentContextFormatter:
                             c_nom = cls._get_val(col, "nominal_values")
                             c_rules = cls._get_val(col, "context_rules")
 
-                            # Costruiamo la riga della colonna in modo compatto
+                            # We build the column row compactly
                             ds_block.append(f"##### Column: `{c_name}` ")
                             ds_block.append(f"- **Slug**: `{c_slug}`")
 
@@ -90,7 +90,7 @@ class AgentContextFormatter:
                             # 4a. Nominal Values (Low Cardinality)
                             if c_nom:
                                 vals = [cls._get_val(v, "value_raw") for v in c_nom]
-                                # Limita a 5 valori per evitare bloat
+                                # Limit to 5 values to avoid bloat
                                 val_str = ", ".join([str(v) for v in vals[:5]])
                                 if len(vals) > 5:
                                     val_str += ", ..."

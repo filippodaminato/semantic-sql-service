@@ -16,7 +16,7 @@ async def sql_generator_node(state, llm):
     blueprint = state["query_blueprint"]
     ds = state["refined_datasource"]
     
-    # Formattiamo il blueprint in stringa leggibile
+    # We format the blueprint into a readable string
     if hasattr(blueprint, "dict"):
         blueprint_dict = blueprint.dict()
     elif hasattr(blueprint, "model_dump"): # Pydantic v2
@@ -29,7 +29,7 @@ async def sql_generator_node(state, llm):
     
     chain, prompt_tpl = build_generator_chain(llm)
     
-    # Se siamo in un loop di correzione, passiamo l'errore precedente
+    # If we are in a correction loop, we pass the previous error
     prev_error = state.get("validation_error", "None")
     
     inputs = {
@@ -77,7 +77,7 @@ async def sql_validator_node(state, llm):
     ds = state["refined_datasource"]
     schema_str = ContextFormatter.to_markdown(ds)
     
-    # --- OPZIONE A: LLM Check ---
+    # --- OPTION A: LLM Check ---
     chain, prompt_tpl = build_validator_chain(llm)
     
     inputs = {
@@ -105,7 +105,7 @@ async def sql_validator_node(state, llm):
         prompt=prompt_str
     )
     
-    # --- OPZIONE B: Real DB 'EXPLAIN' (Se hai la connessione) ---
+    # --- OPTION B: Real DB 'EXPLAIN' (If you have the connection) ---
     # try:
     #     db.execute(f"EXPLAIN {sql}")
     #     res = ValidationResult(is_valid=True)

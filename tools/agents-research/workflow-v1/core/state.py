@@ -8,7 +8,7 @@ def merge_logs(a: List, b: List) -> List:
 
 class AgentState(TypedDict):
     # META
-    run_id: str       # UUID univoco della sessione di esecuzione
+    run_id: str       # UUID unique for the execution session
     
     # --- INPUT ---
     question: str

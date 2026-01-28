@@ -5,7 +5,7 @@ from refinement.nodes import (
     pruner_worker_node, 
     fetch_worker_node, 
     evaluator_node,
-    generate_blueprint_node # Nuovo nodo
+    generate_blueprint_node # New node
 )
 
 from functools import partial
@@ -20,7 +20,7 @@ def route_planner(state):
     elif plan.action_type == "FETCH":
         return "fetcher"
     elif plan.action_type == "READY":
-        return "finalizer" # CAMBIAMENTO CRUCIALE: Va al finalizer, non a END
+        return "finalizer" # CRITICAL CHANGE: Goes to finalizer, not END
     
     return "finalizer"
 
@@ -32,7 +32,7 @@ def build_refinement_subgraph(llm):
     workflow.add_node("fetcher", fetch_worker_node)
     workflow.add_node("evaluator", partial(evaluator_node, llm=llm))
     
-    # Nuovo nodo
+    # New node
     workflow.add_node("finalizer", partial(generate_blueprint_node, llm=llm))
     
     workflow.set_entry_point("planner")
@@ -47,7 +47,7 @@ def build_refinement_subgraph(llm):
     workflow.add_edge("fetcher", "evaluator")
     workflow.add_edge("evaluator", "planner")
     
-    # Il finalizer è l'ultima fermata
+    # The finalizer is the last stop
     workflow.add_edge("finalizer", END)
     
     return workflow.compile()

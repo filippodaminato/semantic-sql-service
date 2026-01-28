@@ -1,154 +1,97 @@
 # Semantic SQL Engine - Management API
 
-Microservizio Enterprise per la gestione della conoscenza semantica per la generazione di query SQL.
+Enterprise microservice for managing semantic knowledge to generate SQL queries.
 
-## 🏗️ Architettura
+## 🏗️ Architecture
 
-Il sistema implementa un'architettura a 4 domini principali:
+The system implements an architecture with 4 main domains:
 
-1. **Physical Ontology**: Gestione schema fisico (tabelle, colonne, relazioni)
-2. **Business Semantics**: Astrazione semantica (metriche, sinonimi)
-3. **Context & Values**: Intelligenza contestuale (valori nominali, regole)
-4. **Learning**: Apprendimento few-shot (golden SQL examples)
+1. **Physical Ontology**: Physical schema management (tables, columns, relations)
+2. **Business Semantics**: Semantic abstraction (metrics, synonyms)
+3. **Context & Values**: Contextual intelligence (nominal values, rules)
+4. **Learning**: Few-shot learning (golden SQL examples)
 
 ## 🚀 Quick Start
 
-### Prerequisiti
+Follow these steps to start the entire stack, load data, and test the system.
 
-- Docker & Docker Compose
-- Python 3.11+ (per sviluppo locale)
-- OpenAI API Key
+### 1. Environment Setup
 
-### Setup
+Copy the configuration file and set your `OPENAI_API_KEY`:
 
-1. **Configurare variabili d'ambiente**:
 ```bash
 cp .env.example .env
-# Modificare .env con le tue credenziali
+nano .env # Insert your OpenAI API Key
 ```
 
-2. **Avviare i servizi**:
+### 2. Start Services
+
+Start the database and backend API with Docker Compose:
+
 ```bash
 docker-compose up -d
 ```
 
-3. **Inizializzare il database**:
+Wait a few seconds for the database to be ready.
+
+### 3. Load Data (Seeding)
+
+Run the seed script to populate the database with the example schema (WMS):
+
 ```bash
-# IMPORTANTE: Esegui sempre Alembic dentro Docker, non localmente!
-# Il database Docker ha l'utente 'semantic_user' che non esiste nel DB locale
+# Run DB migrations and populate with data
 docker-compose exec api alembic upgrade head
-# Oppure usa il Makefile:
-make migrate
+docker-compose exec api python scripts/seed_wms_metadata.py
 ```
 
-4. **Verificare lo stato**:
-```bash
-curl http://localhost:8000/health
-```
+### 4. Start Frontend (Playground)
 
-## 📚 Documentazione API
-
-Una volta avviato il servizio, la documentazione interattiva è disponibile a:
-- **Swagger UI**: http://localhost:8000/docs
-- **ReDoc**: http://localhost:8000/redoc
-
-## 🧪 Testing
+To use the API visually, start the frontend application:
 
 ```bash
-# Eseguire tutti i test
-docker-compose exec api pytest
-
-# Eseguire con coverage
-docker-compose exec api pytest --cov=src --cov-report=html
-
-# Eseguire test specifici
-docker-compose exec api pytest tests/test_ontology.py
+cd tools/semantic-sql-frontend
+npm start
 ```
 
-## 📦 Struttura del Progetto
+Now open your browser at: [http://localhost:4200](http://localhost:4200)
 
-```
-semantic-sql-service/
-├── src/
-│   ├── api/              # FastAPI routers
-│   ├── core/             # Configurazione e utilities
-│   ├── db/               # Database models e migrations
-│   ├── services/         # Business logic
-│   ├── schemas/          # Pydantic DTOs
-│   └── __init__.py
-├── tests/                # Test suite
-├── alembic/              # Database migrations
-├── docker-compose.yml
-├── Dockerfile
-├── pyproject.toml
-└── README.md
-```
+### 5. Test Text-to-SQL (Agent Workflow)
 
-## 🔧 Configurazione
+To test Text-to-SQL generation via the Python Agent CLI:
 
-### Variabili d'Ambiente
+1. Navigate to the workflow folder:
+   ```bash
+   cd tools/agents-research/workflow-v1
+   ```
 
-| Variabile | Descrizione | Default |
-|-----------|-------------|---------|
-| `DATABASE_URL` | PostgreSQL connection string | `postgresql://user:password@db:5432/semantic_sql` |
-| `OPENAI_API_KEY` | OpenAI API key (richiesto) | - |
-| `OPENAI_MODEL` | Modello embedding OpenAI | `text-embedding-3-small` |
-| `LOG_LEVEL` | Livello di log | `INFO` |
+2. Ensure dependencies are installed (recommended in a virtualenv):
+   ```bash
+   # Dependencies are managed in the main project (see root pyproject.toml)
+   # Ensure you have the virtual environment active with installed dependencies
+   # Ensure OPENAI_API_KEY is set in your environment or in the .env in this folder
+   ```
 
-## 🏢 Enterprise Features
+3. Run the agent:
+   ```bash
+   python main.py "How many orders were shipped yesterday?"
+   ```
 
-- ✅ Validazione DTO rigorosa con Pydantic
-- ✅ Idempotenza e gestione duplicati
-- ✅ Transazioni atomiche per Deep Writes
-- ✅ Vettorializzazione automatica con OpenAI
-- ✅ Validazione SQL con sqlglot
-- ✅ Bulk operations per performance
-- ✅ Test coverage completa
-- ✅ Documentazione OpenAPI/Swagger
+   Or in interactive mode:
+   ```bash
+   python main.py
+   ```
 
-## 📖 Esempi d'Uso
+4. **Debug Logs**:
+   To visualize execution logs, open `tools/agents-research/workflow-v1/debugger-ui/index.html` in your browser.
+   Then select the JSONL log file generated in `tools/agents-research/workflow-v1/logs/`.
 
-### Creare una tabella con colonne (Deep Create)
+## 🏗️ Useful Resources
 
-```bash
-curl -X POST http://localhost:8000/api/v1/ontology/tables \
-  -H "Content-Type: application/json" \
-  -d '{
-    "datasource_id": "550e8400-e29b-41d4-a716-446655440000",
-    "physical_name": "t_sales_2024",
-    "semantic_name": "Sales Transactions",
-    "description": "Tabella principale contenente tutte le transazioni e-commerce confermate.",
-    "ddl_context": "CREATE TABLE t_sales_2024 (id INT, amount DECIMAL(10,2))",
-    "columns": [
-      {
-        "name": "amount_total",
-        "data_type": "DECIMAL(10,2)",
-        "is_primary_key": false,
-        "context_note": "Include IVA. Se null, transazione fallita."
-      }
-    ]
-  }'
-```
+- **Database Admin (PgAdmin)**: http://localhost:5050 (Login: `admin@admin.com` / `admin`)
 
-### Creare una metrica semantica
+## 📦 Main Folder Structure
 
-```bash
-curl -X POST http://localhost:8000/api/v1/semantics/metrics \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "Average Basket Size",
-    "description": "Valore medio del carrello per ordini completati",
-    "sql_expression": "AVG(t_sales.amount_total)",
-    "required_table_ids": ["uuid-table-sales"],
-    "filter_condition": "t_sales.status = '\''COMPLETED'\''"
-  }'
-```
-
-## 🔍 Monitoring
-
-- Health check: `GET /health`
-- Metrics: `GET /metrics` (se configurato Prometheus)
-
-## 📝 License
-
-MIT
+- `src/`: Backend API source code
+- `scripts/`: Seeding and maintenance scripts (e.g. `seed_wms_metadata.py`)
+- `tools/agents-research/workflow-v1/`: Text-to-SQL Agent code and Debugger UI
+- `tools/semantic-sql-frontend/`: Frontend Angular Application

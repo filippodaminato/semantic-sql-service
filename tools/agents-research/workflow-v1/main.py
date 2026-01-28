@@ -32,7 +32,7 @@ async def main():
         query = input("> ")
 
     # 2. Setup Deep Observability
-    run_id = str(uuid.uuid4())[:8] # ID corto
+    run_id = str(uuid.uuid4())[:8] # Short ID
     logger = setup_logger(run_id)
     
     logger.info(f"🚀 STARTING RUN: {run_id}")
